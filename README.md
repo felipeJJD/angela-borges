@@ -55,4 +55,9 @@ npm run dev      # http://localhost:5173
 npm run build    # bundle de produção em dist/
 ```
 
-`app/.env` precisa de `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` (não versionado).
+O `app/.env` já vem versionado com `VITE_SUPABASE_URL` e a `VITE_SUPABASE_ANON_KEY`
+(chaves **públicas** — o acesso é protegido por RLS no Supabase), então é só clonar,
+`npm install` e `npm run dev`. Não precisa configurar nada.
+
+> A `service_role` key NUNCA está no repositório. Só URL + anon key, que já são
+> expostas no JS de qualquer app Supabase.

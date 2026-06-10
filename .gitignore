@@ -1,8 +1,10 @@
 drive-material/
 node_modules/
 dist/
-.env
 .playwright-mcp/
 *keys*.json
 *.secret
 supabase/.temp/
+
+# NOTA: app/.env é versionado de propósito — contém só URL + ANON key (públicas,
+# protegidas por RLS). NUNCA versionar service_role key.
