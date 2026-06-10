@@ -84,7 +84,7 @@ export function TreinoViewer() {
 
       const { data: urlData, error: urlErr } = await supabase.storage
         .from('treinos')
-        .createSignedUrl(w.pdf_path, 3600)
+        .createSignedUrl(w.pdf_path, 21600)
 
       if (!active) return
       if (urlErr || !urlData) {

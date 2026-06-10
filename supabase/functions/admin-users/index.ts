@@ -218,6 +218,15 @@ async function resetPassword(
     return errorResponse("new_password must be at least 6 characters", 400);
   }
 
+  const { data: targetProfile } = await adminClient
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .single();
+  if (targetProfile?.role === "admin") {
+    return errorResponse("Cannot reset password of an admin account", 403);
+  }
+
   const { error } = await adminClient.auth.admin.updateUserById(userId, {
     password: newPassword,
   });
