@@ -1,7 +1,7 @@
 # Comunidade Angela Borges — PWA de Treinos
 
 PWA mobile-first para as alunas da Comunidade Angela Borges. Login, treinos semanais em PDF,
-check-in diário, conclusão de fichas com progressão automática Team 1 → 2 → 3, e painel
+check-in diário, conclusão de fichas com progressão Team 1 → 2 → 3 liberada pelo admin, e painel
 administrativo para gestão das alunas. Visual dark + coral, identidade da marca.
 
 ## Stack
@@ -19,8 +19,13 @@ supabase/
   migrations/
     0001_init.sql         schema, RLS, RPC complete_workout, trigger, bucket
     0002_security_fixes.sql  hardening (conclusão só via RPC, storage gated por team)
+    0003_manual_team_promotion.sql  progressão de team manual (só admin libera)
+    0004_workout_plans.sql  planos estruturados (jsonb) com RLS por team
   functions/admin-users/  edge function de gestão (create/delete/reset/set_team/list)
 scripts/setup_db.py       upload dos PDFs + seed workouts + cria admin
+scripts/extract_plans.py  extração one-time dos PDFs -> scripts/plans/*.json
+scripts/seed_plans.py     upsert dos planos em workout_plans
+scripts/plans/            fonte revisável dos planos extraídos (1 json por ficha)
 ```
 
 ## Modelo de dados
@@ -29,12 +34,15 @@ scripts/setup_db.py       upload dos PDFs + seed workouts + cria admin
 - `workouts` — 34 fichas: Team 1 (12), Team 2 (7), Team 3 (15). Cada ficha = PDF da semana.
 - `daily_checkins` — 1 check-in por dia (unique user_id + done_on)
 - `workout_completions` — fichas concluídas; escrita **só** via RPC `complete_workout`
-- RPC `complete_workout(p_workout_id)` — marca concluída e sobe de team ao completar todas
+- `workout_plans` — plano estruturado (jsonb: dias → exercícios com séries/reps/descanso/observação/vídeos) extraído dos PDFs; leitura gated por team (mesma regra do storage)
+- RPC `complete_workout(p_workout_id)` — marca concluída e sinaliza `team_completed`; a subida de team é **manual, só pelo admin** (via edge function `set_team`)
 
 ## Funcionalidades
 
-**Aluna:** semana atual com check-ins, marcar treino do dia, abrir ficha (PDF + vídeos),
-concluir ficha, progressão automática de team com celebração, perfil.
+**Aluna:** semana atual com check-ins, marcar treino do dia, abrir ficha nativa (dias da
+semana em chips, cards de exercício com séries/reps/descanso/observações e player de
+YouTube embutido; "Ver PDF" como opção), concluir ficha, celebração ao completar todas
+as fichas do nível (admin libera o próximo), perfil.
 
 **Admin:** lista de alunas (team, fichas, último check-in), criar conta, mudar team,
 resetar senha, excluir aluna.

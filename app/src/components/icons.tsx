@@ -125,6 +125,35 @@ export const IconFlame = (p: P) => (
   </svg>
 )
 
+export const IconPlay = (p: P) => (
+  <svg {...base({ fill: 'currentColor', stroke: 'none', ...p })}>
+    <path d="M8 5.5v13a.8.8 0 0 0 1.2.7l10.4-6.5a.8.8 0 0 0 0-1.4L9.2 4.8A.8.8 0 0 0 8 5.5Z" />
+  </svg>
+)
+
+export const IconChevronDown = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+)
+
+export const IconFileText = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 2v6h6" />
+    <path d="M9 13h6" />
+    <path d="M9 17h6" />
+  </svg>
+)
+
+export const IconExternal = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M14 4h6v6" />
+    <path d="M20 4 10 14" />
+    <path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />
+  </svg>
+)
+
 export const IconEye = (p: P) => (
   <svg {...base(p)}>
     <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
