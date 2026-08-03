@@ -46,6 +46,6 @@ export function createAnamnesisDraft({
     createdAt: now,
     updatedAt: now,
     submittedAt: null,
-    idempotencyKey: `anamnesis:${ANGELA_ANAMNESIS_SCHEMA_VERSION}:${userId}:${id}`,
+    idempotencyKey: id,
   }
 }

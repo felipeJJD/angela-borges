@@ -183,15 +183,15 @@ describe('AngelaAnamnesisJourney catalog', () => {
 })
 
 describe('AngelaAnamnesisJourney validation', () => {
-  it('creates a versioned user draft with a stable idempotency key', () => {
+  it('uses one stable UUID for the draft, idempotency, and correlation identity', () => {
     const draft = AngelaAnamnesisJourney.createDraft({
-      id: 'draft-001',
+      id: '22222222-2222-4222-8222-222222222222',
       userId: 'user-123',
       now: '2026-08-03T15:00:00.000Z',
     })
 
     expect(draft).toEqual({
-      id: 'draft-001',
+      id: '22222222-2222-4222-8222-222222222222',
       userId: 'user-123',
       schemaVersion: 'angela-anamnesis.v1',
       revision: 0,
@@ -200,7 +200,7 @@ describe('AngelaAnamnesisJourney validation', () => {
       createdAt: '2026-08-03T15:00:00.000Z',
       updatedAt: '2026-08-03T15:00:00.000Z',
       submittedAt: null,
-      idempotencyKey: 'anamnesis:angela-anamnesis.v1:user-123:draft-001',
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
     })
   })
 
@@ -345,6 +345,37 @@ describe('AngelaAnamnesisJourney reducer', () => {
     expect(
       AngelaAnamnesisJourney.reducer(forcedReview, { type: 'back' }).stepIndex,
     ).toBe(0)
+  })
+
+  it('accepts a server revision without overwriting answers changed during the save', () => {
+    const initial = AngelaAnamnesisJourney.createState(createDraft())
+    const firstAnswer = AngelaAnamnesisJourney.reducer(initial, {
+      type: 'answer_changed',
+      key: 'birth_date',
+      value: '1990-06-15',
+      now: '2026-08-03T15:01:00.000Z',
+    })
+    const newerAnswer = AngelaAnamnesisJourney.reducer(firstAnswer, {
+      type: 'answer_changed',
+      key: 'birth_date',
+      value: '1991-07-16',
+      now: '2026-08-03T15:02:00.000Z',
+    })
+
+    const synchronized = AngelaAnamnesisJourney.reducer(newerAnswer, {
+      type: 'save_succeeded',
+      draft: {
+        ...firstAnswer.draft,
+        revision: 1,
+        updatedAt: '2026-08-03T15:01:30.000Z',
+      },
+    })
+
+    expect(synchronized.draft).toMatchObject({
+      revision: 1,
+      answers: { birth_date: '1991-07-16' },
+      updatedAt: '2026-08-03T15:02:00.000Z',
+    })
   })
 
   it('hydrates only the bound user and current schema, resuming at the first gap', () => {

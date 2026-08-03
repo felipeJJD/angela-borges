@@ -44,6 +44,8 @@ export {
   AnamnesisDraftValidationError,
 } from './repository'
 export type { AnamnesisDraftRepository } from './repository'
+export { SerializedAnamnesisDraftSaver } from './SerializedAnamnesisDraftSaver'
+export { SupabaseAnamnesisDraftRepository } from './SupabaseAnamnesisDraftRepository'
 export {
   getAnamnesisProgress,
   toggleAnamnesisMultiAnswer,

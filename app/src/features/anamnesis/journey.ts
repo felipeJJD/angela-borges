@@ -46,6 +46,7 @@ export type AnamnesisJourneyAction =
   | Readonly<{ type: 'back' }>
   | Readonly<{ type: 'review' }>
   | Readonly<{ type: 'hydrate'; draft: unknown }>
+  | Readonly<{ type: 'save_succeeded'; draft: AnamnesisDraft }>
   | Readonly<{ type: 'submit_requested'; now: string }>
   | Readonly<{ type: 'submit_succeeded'; draft: AnamnesisDraft }>
   | Readonly<{ type: 'submit_failed'; message: string; now: string }>
@@ -237,6 +238,27 @@ export function reduceAnamnesisJourney(
         : moveToReview(state)
     case 'hydrate':
       return acceptHydratedDraft(state, action.draft)
+    case 'save_succeeded': {
+      const saved = action.draft
+      if (
+        saved.id !== state.draft.id ||
+        saved.userId !== state.draft.userId ||
+        saved.schemaVersion !== state.draft.schemaVersion ||
+        saved.idempotencyKey !== state.draft.idempotencyKey ||
+        saved.status !== 'draft' ||
+        saved.revision < state.draft.revision
+      ) {
+        return state
+      }
+      return {
+        ...state,
+        draft: {
+          ...state.draft,
+          revision: saved.revision,
+          createdAt: saved.createdAt,
+        },
+      }
+    }
     case 'submit_requested': {
       if (state.phase === 'submitting' || state.phase === 'submitted') return state
       if (state.phase !== 'review') return moveToReview(state)

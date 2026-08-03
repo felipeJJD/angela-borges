@@ -1,9 +1,17 @@
-import { useEffect, useReducer, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { IconArrowLeft, IconCheck, IconFileText } from '../components/icons'
 import { FullScreenLoader } from '../components/Spinner'
 import { useAuth } from '../hooks/useAuth'
+import { supabase } from '../lib/supabase'
 import {
   AngelaAnamnesisJourney,
   type AnamnesisAnswer,
@@ -13,10 +21,14 @@ import {
   type AnamnesisStep,
   type AnamnesisStepKey,
 } from '../features/anamnesis'
+import { SerializedAnamnesisDraftSaver } from '../features/anamnesis/SerializedAnamnesisDraftSaver'
+import { SupabaseAnamnesisDraftRepository } from '../features/anamnesis/SupabaseAnamnesisDraftRepository'
 
 type AnamneseProps = Readonly<{
   repository?: AnamnesisDraftRepository | null
 }>
+
+type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const sectionLabels: Record<AnamnesisSection, string> = {
   personal: 'Você',
@@ -46,7 +58,32 @@ function formatAnswer(step: AnamnesisStep, answer: AnamnesisAnswer | undefined):
   return `${String(answer)}${step.unit ? ` ${step.unit}` : ''}`
 }
 
-function PersistenceNotice({ connected }: { connected: boolean }) {
+function PersistenceNotice({
+  connected,
+  saveState,
+}: {
+  connected: boolean
+  saveState: SaveState
+}) {
+  const connectedCopy = {
+    idle: {
+      title: 'Salvamento seguro ativo',
+      body: 'Seu progresso será salvo na sua conta conforme você responde.',
+    },
+    saving: {
+      title: 'Salvando…',
+      body: 'Aguarde um instante antes de fechar esta página.',
+    },
+    saved: {
+      title: 'Rascunho salvo',
+      body: 'Seu progresso está seguro e poderá ser retomado nesta conta.',
+    },
+    error: {
+      title: 'Falha ao salvar',
+      body: 'Seu progresso ainda está somente nesta tela. Continue conectada e tente outra etapa.',
+    },
+  }[saveState]
+
   return (
     <div
       className={`rounded-2xl border px-4 py-3 text-xs leading-relaxed ${
@@ -57,10 +94,10 @@ function PersistenceNotice({ connected }: { connected: boolean }) {
       role="status"
     >
       <strong className="block text-sm text-white">
-        {connected ? 'Envio seguro conectado' : 'Rascunho temporário'}
+        {connected ? connectedCopy.title : 'Rascunho não persistido'}
       </strong>
       {connected
-        ? 'As respostas ficam nesta tela até o envio. O salvamento automático ainda não está ativo.'
+        ? connectedCopy.body
         : 'O repositório seguro ainda não foi conectado. Fechar ou recarregar esta página descarta as respostas; nada é salvo no navegador.'}
     </div>
   )
@@ -257,8 +294,27 @@ function AnamneseJourney({
         AngelaAnamnesisJourney.createDraft({ userId: boundUserId }),
       ),
   )
+  const saver = useMemo(
+    () => (repository ? new SerializedAnamnesisDraftSaver(repository) : null),
+    [repository],
+  )
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready'>(
+    repository ? 'loading' : 'ready',
+  )
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
   const submitInFlight = useRef(false)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveGeneration = useRef(0)
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!repository) return
@@ -267,16 +323,51 @@ function AnamneseJourney({
       .load()
       .then((draft) => {
         if (active && draft) dispatch({ type: 'hydrate', draft })
+        if (active) setLoadStatus('ready')
       })
       .catch(() => {
         if (active) {
           setLoadError('Não foi possível carregar o rascunho seguro. Você pode responder nesta tela.')
+          setSaveState('error')
+          setLoadStatus('ready')
         }
       })
     return () => {
       active = false
     }
   }, [repository])
+
+  const scheduleSave = useCallback(
+    (draft: AnamnesisDraft, immediate = false) => {
+      if (!saver) return
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current)
+        saveTimer.current = null
+      }
+
+      const generation = ++saveGeneration.current
+      setSaveState('saving')
+      const persist = () => {
+        saveTimer.current = null
+        void saver
+          .queue(draft)
+          .then((saved) => {
+            if (!mounted.current) return
+            dispatch({ type: 'save_succeeded', draft: saved })
+            if (generation === saveGeneration.current) setSaveState('saved')
+          })
+          .catch(() => {
+            if (mounted.current && generation === saveGeneration.current) {
+              setSaveState('error')
+            }
+          })
+      }
+
+      if (immediate) persist()
+      else saveTimer.current = setTimeout(persist, 300)
+    },
+    [saver],
+  )
 
   const submit = async () => {
     if (submitInFlight.current || state.phase !== 'review') return
@@ -288,12 +379,22 @@ function AnamneseJourney({
     submitInFlight.current = true
     dispatch({ type: 'submit_requested', now: new Date().toISOString() })
     try {
-      if (!repository) {
+      if (!repository || !saver) {
         throw new Error(
           'O envio seguro ainda não está disponível. Suas respostas continuam somente nesta tela.',
         )
       }
-      const submitted = await repository.submit(state.draft, state.draft.revision)
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current)
+        saveTimer.current = null
+      }
+      setSaveState('saving')
+      const persisted = await saver.queue(state.draft)
+      if (mounted.current) {
+        dispatch({ type: 'save_succeeded', draft: persisted })
+        setSaveState('saved')
+      }
+      const submitted = await repository.submit(persisted, persisted.revision)
       dispatch({ type: 'submit_succeeded', draft: submitted })
     } catch (error) {
       dispatch({
@@ -311,6 +412,32 @@ function AnamneseJourney({
 
   const progress = AngelaAnamnesisJourney.getProgress(state.draft.answers)
   const currentStep = AngelaAnamnesisJourney.catalog.steps[state.stepIndex]
+  const move = (type: 'next' | 'back') => {
+    scheduleSave(state.draft, true)
+    dispatch({ type })
+  }
+  const leave = () => {
+    scheduleSave(state.draft, true)
+    navigate('/')
+  }
+  const changeAnswer = (
+    key: AnamnesisStepKey,
+    value: AnamnesisAnswer | undefined,
+  ) => {
+    const action = {
+      type: 'answer_changed' as const,
+      key,
+      value,
+      now: new Date().toISOString(),
+    }
+    const next = AngelaAnamnesisJourney.reducer(state, action)
+    dispatch(action)
+    scheduleSave(next.draft)
+  }
+
+  if (loadStatus === 'loading') {
+    return <FullScreenLoader label="Carregando seu rascunho…" />
+  }
 
   if (state.phase === 'submitting') {
     return (
@@ -383,7 +510,7 @@ function AnamneseJourney({
           <button
             type="button"
             aria-label="Voltar às perguntas"
-            onClick={() => dispatch({ type: 'back' })}
+            onClick={() => move('back')}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-surface text-white"
           >
             <IconArrowLeft className="h-5 w-5" />
@@ -396,7 +523,7 @@ function AnamneseJourney({
           </div>
         </header>
 
-        <PersistenceNotice connected={Boolean(repository)} />
+        <PersistenceNotice connected={Boolean(repository)} saveState={saveState} />
         {loadError && <p className="mt-3 text-sm text-red-300">{loadError}</p>}
         <div className="mt-5">
           <ReviewCard draft={state.draft} />
@@ -405,7 +532,7 @@ function AnamneseJourney({
           <Button full onClick={() => void submit()}>
             Enviar anamnese
           </Button>
-          <Button variant="ghost" full onClick={() => dispatch({ type: 'back' })}>
+          <Button variant="ghost" full onClick={() => move('back')}>
             Voltar às perguntas
           </Button>
         </div>
@@ -424,9 +551,7 @@ function AnamneseJourney({
         <button
           type="button"
           aria-label={state.stepIndex === 0 ? 'Sair da anamnese' : 'Voltar uma etapa'}
-          onClick={() =>
-            state.stepIndex === 0 ? navigate('/') : dispatch({ type: 'back' })
-          }
+          onClick={() => (state.stepIndex === 0 ? leave() : move('back'))}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-surface text-white"
         >
           <IconArrowLeft className="h-5 w-5" />
@@ -459,7 +584,7 @@ function AnamneseJourney({
         <SectionRail activeSection={currentStep.section} />
       </div>
       <div className="mt-4">
-        <PersistenceNotice connected={Boolean(repository)} />
+        <PersistenceNotice connected={Boolean(repository)} saveState={saveState} />
         {loadError && <p className="mt-2 text-xs text-red-300">{loadError}</p>}
       </div>
 
@@ -483,12 +608,7 @@ function AnamneseJourney({
             answer={currentAnswer}
             issue={currentIssue?.message}
             onChange={(value) =>
-              dispatch({
-                type: 'answer_changed',
-                key: currentStep.key as AnamnesisStepKey,
-                value,
-                now: new Date().toISOString(),
-              })
+              changeAnswer(currentStep.key as AnamnesisStepKey, value)
             }
           />
         </div>
@@ -497,12 +617,12 @@ function AnamneseJourney({
       <div className="mt-8 grid grid-cols-[auto_1fr] gap-3">
         <Button
           variant="ghost"
-          onClick={() => dispatch({ type: 'back' })}
+          onClick={() => move('back')}
           disabled={state.stepIndex === 0}
         >
           Anterior
         </Button>
-        <Button full onClick={() => dispatch({ type: 'next' })}>
+        <Button full onClick={() => move('next')}>
           {state.stepIndex === progress.total - 1 ? 'Revisar respostas' : 'Continuar'}
         </Button>
       </div>
@@ -510,8 +630,20 @@ function AnamneseJourney({
   )
 }
 
-export function Anamnese({ repository = null }: AnamneseProps) {
+export function Anamnese({ repository: repositoryOverride }: AnamneseProps) {
   const { session } = useAuth()
-  if (!session?.user.id) return <FullScreenLoader label="Confirmando sua conta…" />
-  return <AnamneseJourney userId={session.user.id} repository={repository} />
+  const userId = session?.user.id ?? null
+  const repository = useMemo(() => {
+    if (repositoryOverride !== undefined) return repositoryOverride
+    return userId ? new SupabaseAnamnesisDraftRepository(userId, supabase) : null
+  }, [repositoryOverride, userId])
+
+  if (!userId) return <FullScreenLoader label="Confirmando sua conta…" />
+  return (
+    <AnamneseJourney
+      key={userId}
+      userId={userId}
+      repository={repository}
+    />
+  )
 }
