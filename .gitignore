@@ -6,5 +6,7 @@ dist/
 *.secret
 supabase/.temp/
 
-# NOTA: app/.env é versionado de propósito — contém só URL + ANON key (públicas,
-# protegidas por RLS). NUNCA versionar service_role key.
+# Local environment files stay untracked. Commit only sanitized examples.
+**/.env
+**/.env.*
+!**/.env.example

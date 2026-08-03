@@ -1,16 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+import { resolveSupabaseConfig } from './runtime-config'
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Variáveis do Supabase ausentes. Copie app/.env.example para app/.env ' +
-      '(ou use o .env já versionado) e reinicie o dev server (npm run dev).',
-  )
-}
+const { url, anonKey } = resolveSupabaseConfig(import.meta.env)
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(url, anonKey)
 
 export type Profile = {
   id: string
