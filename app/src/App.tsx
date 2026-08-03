@@ -15,6 +15,9 @@ import { Admin } from './pages/Admin'
 const TreinoViewer = lazy(() =>
   import('./pages/TreinoViewer').then((m) => ({ default: m.TreinoViewer })),
 )
+const Anamnese = lazy(() =>
+  import('./pages/Anamnese').then((m) => ({ default: m.Anamnese })),
+)
 
 export default function App() {
   return (
@@ -34,6 +37,14 @@ export default function App() {
             >
               <Route path="/" element={<Home />} />
               <Route path="/treinos" element={<Treinos />} />
+              <Route
+                path="/anamnese"
+                element={
+                  <Suspense fallback={<FullScreenLoader label="Abrindo anamnese…" />}>
+                    <Anamnese />
+                  </Suspense>
+                }
+              />
               <Route path="/perfil" element={<Perfil />} />
             </Route>
 
