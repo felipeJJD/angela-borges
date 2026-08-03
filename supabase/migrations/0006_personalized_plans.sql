@@ -5,6 +5,7 @@
 -- Canonical cross-runtime envelope:
 -- {user_id,protocol_id,protocol_version,schema_version,diet,training,generation_metadata}
 -- snapshot_hash é fornecido pela Dashboard e preservado sem recomputação SQL.
+-- source_protocol_updated_at é um fence de publicação e não integra o hash.
 
 create or replace function public.is_complete_angela_plan_snapshot(
   p_diet jsonb,
@@ -271,6 +272,8 @@ create table public.angela_personalized_plans (
     protocol_version >= 1 and protocol_version <= 9007199254740991
   ),
   delivery_sequence bigint generated always as identity unique,
+  source_protocol_updated_at timestamptz not null
+    check (isfinite(source_protocol_updated_at)),
   schema_version text not null check (schema_version = 'angela-plan.v1'),
   snapshot_hash text not null check (snapshot_hash ~ '^[0-9a-f]{64}$'),
   diet jsonb not null,
@@ -313,8 +316,13 @@ create index angela_personalized_plans_delivery_idx
     protocol_version
   );
 
-create index angela_personalized_plans_fence_idx
-  on public.angela_personalized_plans (user_id, delivery_sequence desc);
+create index angela_personalized_plans_source_fence_idx
+  on public.angela_personalized_plans (
+    user_id,
+    source_protocol_updated_at desc,
+    protocol_id,
+    protocol_version
+  );
 
 create or replace function public.prevent_angela_plan_payload_change()
 returns trigger
@@ -326,6 +334,7 @@ begin
     or old.protocol_id is distinct from new.protocol_id
     or old.protocol_version is distinct from new.protocol_version
     or old.delivery_sequence is distinct from new.delivery_sequence
+    or old.source_protocol_updated_at is distinct from new.source_protocol_updated_at
     or old.schema_version is distinct from new.schema_version
     or old.snapshot_hash is distinct from new.snapshot_hash
     or old.diet is distinct from new.diet
@@ -392,6 +401,7 @@ begin
     'user_id', v_plan.user_id,
     'protocol_id', v_plan.protocol_id,
     'protocol_version', v_plan.protocol_version,
+    'source_protocol_updated_at', v_plan.source_protocol_updated_at,
     'schema_version', v_plan.schema_version,
     'diet', v_plan.diet,
     'training', v_plan.training,
@@ -410,6 +420,7 @@ create or replace function public.stage_angela_plan(
   p_user_id uuid,
   p_protocol_id uuid,
   p_protocol_version bigint,
+  p_source_protocol_updated_at timestamptz,
   p_schema_version text,
   p_snapshot_hash text,
   p_diet jsonb,
@@ -429,6 +440,8 @@ begin
     or p_protocol_version is null
     or p_protocol_version < 1
     or p_protocol_version > 9007199254740991
+    or p_source_protocol_updated_at is null
+    or not isfinite(p_source_protocol_updated_at)
     or p_schema_version is distinct from 'angela-plan.v1'
     or p_snapshot_hash is null
     or p_snapshot_hash !~ '^[0-9a-f]{64}$'
@@ -461,7 +474,9 @@ begin
    for update;
 
   if found then
-    if v_existing.snapshot_hash is distinct from p_snapshot_hash
+    if v_existing.source_protocol_updated_at is distinct from
+         p_source_protocol_updated_at
+      or v_existing.snapshot_hash is distinct from p_snapshot_hash
       or v_existing.schema_version is distinct from p_schema_version
       or v_existing.diet is distinct from p_diet
       or v_existing.training is distinct from p_training
@@ -486,6 +501,7 @@ begin
       user_id,
       protocol_id,
       protocol_version,
+      source_protocol_updated_at,
       schema_version,
       snapshot_hash,
       diet,
@@ -495,6 +511,7 @@ begin
       p_user_id,
       p_protocol_id,
       p_protocol_version,
+      p_source_protocol_updated_at,
       p_schema_version,
       p_snapshot_hash,
       p_diet,
@@ -514,7 +531,9 @@ begin
       if not found then
         raise;
       end if;
-      if v_existing.snapshot_hash is distinct from p_snapshot_hash
+      if v_existing.source_protocol_updated_at is distinct from
+           p_source_protocol_updated_at
+        or v_existing.snapshot_hash is distinct from p_snapshot_hash
         or v_existing.schema_version is distinct from p_schema_version
         or v_existing.diet is distinct from p_diet
         or v_existing.training is distinct from p_training
@@ -558,7 +577,7 @@ set search_path = pg_catalog
 as $$
 declare
   v_target public.angela_personalized_plans%rowtype;
-  v_newest_sequence bigint;
+  v_blocking_plan public.angela_personalized_plans%rowtype;
   v_now timestamptz := statement_timestamp();
 begin
   if p_user_id is null
@@ -613,13 +632,26 @@ begin
     );
   end if;
 
-  select max(plan.delivery_sequence)
-    into v_newest_sequence
+  select plan.*
+    into v_blocking_plan
     from public.angela_personalized_plans as plan
    where plan.user_id = p_user_id
-     and plan.state in ('active', 'staged');
+     and plan.id <> v_target.id
+     and plan.state in ('active', 'staged')
+     and (
+       plan.source_protocol_updated_at > v_target.source_protocol_updated_at
+       or (
+         plan.source_protocol_updated_at = v_target.source_protocol_updated_at
+         and plan.state = 'active'
+       )
+     )
+   order by
+     plan.source_protocol_updated_at desc,
+     case when plan.state = 'active' then 0 else 1 end
+   limit 1
+   for update;
 
-  if v_target.delivery_sequence < v_newest_sequence then
+  if found then
     update public.angela_personalized_plans
        set state = 'superseded',
            activated_at = null,
@@ -644,7 +676,8 @@ begin
          updated_at = v_now
    where user_id = p_user_id
      and state in ('active', 'staged')
-     and delivery_sequence < v_target.delivery_sequence;
+     and id <> v_target.id
+     and source_protocol_updated_at < v_target.source_protocol_updated_at;
 
   update public.angela_personalized_plans
      set state = 'active',
@@ -704,14 +737,14 @@ revoke all on function public.is_complete_angela_plan_snapshot(jsonb, jsonb, jso
   from public, anon, authenticated, service_role;
 revoke all on function public.prevent_angela_plan_payload_change()
   from public, anon, authenticated, service_role;
-revoke all on function public.stage_angela_plan(uuid, uuid, bigint, text, text, jsonb, jsonb, jsonb)
+revoke all on function public.stage_angela_plan(uuid, uuid, bigint, timestamptz, text, text, jsonb, jsonb, jsonb)
   from public, anon, authenticated, service_role;
 revoke all on function public.read_angela_plan_delivery(uuid, uuid, bigint)
   from public, anon, authenticated, service_role;
 revoke all on function public.activate_angela_plan(uuid, uuid, bigint, text)
   from public, anon, authenticated, service_role;
 
-grant execute on function public.stage_angela_plan(uuid, uuid, bigint, text, text, jsonb, jsonb, jsonb)
+grant execute on function public.stage_angela_plan(uuid, uuid, bigint, timestamptz, text, text, jsonb, jsonb, jsonb)
   to service_role;
 grant execute on function public.read_angela_plan_delivery(uuid, uuid, bigint)
   to service_role;

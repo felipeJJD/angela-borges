@@ -27,12 +27,14 @@ O arquivo copiado é byte a byte idêntico ao da Dashboard (SHA-256 do arquivo
 O SQL não recalcula o hash: preserva o hash esperado e torna imutável a dupla
 payload/hash; a Dashboard deve recalcular o readback antes de ativar. O PWA
 também serializa o snapshot pelo mesmo algoritmo lexical e calcula SHA-256 com
-Web Crypto antes de liberar o estado `published`.
+Web Crypto antes de liberar o estado `published`. O fence
+`source_protocol_updated_at` é deliberadamente externo a esse envelope e nunca
+entra no hash.
 
 As assinaturas RPC são exatamente:
 
 ```sql
-stage_angela_plan(p_user_id,p_protocol_id,p_protocol_version,p_schema_version,p_snapshot_hash,p_diet,p_training,p_generation_metadata)
+stage_angela_plan(p_user_id,p_protocol_id,p_protocol_version,p_source_protocol_updated_at,p_schema_version,p_snapshot_hash,p_diet,p_training,p_generation_metadata)
 read_angela_plan_delivery(p_user_id,p_protocol_id,p_protocol_version)
 activate_angela_plan(p_user_id,p_protocol_id,p_protocol_version,p_snapshot_hash)
 ```
@@ -59,6 +61,7 @@ Versão encontrada:
   "user_id": "uuid",
   "protocol_id": "uuid",
   "protocol_version": 1,
+  "source_protocol_updated_at": "timestamptz",
   "schema_version": "angela-plan.v1",
   "diet": {},
   "training": {},
@@ -72,21 +75,28 @@ Versão encontrada:
 }
 ```
 
-`stage_angela_plan` e `activate_angela_plan` envolvem esse objeto como
+`source_protocol_updated_at` deve ser a leitura revalidada de
+`protocol.updated_at` na Dashboard e é devolvido somente pelo readback
+service-only; o grant de colunas do PWA não o expõe. `stage_angela_plan` e
+`activate_angela_plan` envolvem esse objeto como
 `{"replayed": boolean, "delivery": <readback>}`. Staging idêntico é replay;
-staging da mesma chave com qualquer diferença de schema, hash, dieta, treino ou
-metadados falha com `ANGELA_PLAN_STAGE_CONFLICT`. Ativação confere o hash e
+staging da mesma chave com qualquer diferença de timestamp-fence, schema, hash,
+dieta, treino ou metadados falha com `ANGELA_PLAN_STAGE_CONFLICT`. Ativação confere o hash e
 supersede a ativa anterior na mesma transação. Replay de uma versão antiga já
 supersedida retorna `replayed=true` e `delivery.state="superseded"`, sem reativar
 nem substituir a versão ativa mais nova.
 
-Cada insert recebe um `delivery_sequence` identity interno, ausente do hash, do
-readback e dos grants do PWA. Sob o lock da profile, ativar a sequência mais nova
-terminaliza todas as sequências antigas `active|staged`; uma ativação atrasada
-de uma staged antiga devolve replay superseded e não altera a ativa nova. O
-insert também converge em `unique_violation`: relê a tupla e só aceita replay
-se schema, hash e todos os payloads forem idênticos. As RPCs `SECURITY DEFINER`
-usam somente `pg_catalog` no `search_path` e referências públicas qualificadas.
+Cada insert ainda recebe um `delivery_sequence` identity interno de chegada,
+ausente do hash, do readback e dos grants do PWA, mas ele não participa da
+precedência. Sob o lock da profile, o fence usa exclusivamente
+`source_protocol_updated_at`: um alvo só substitui a ativa quando seu timestamp
+é estritamente maior; timestamp mais antigo ou empate com identidade diferente
+mantém a ativa e terminaliza o alvo como `superseded`. Isso cobre tanto
+`staged-old → activate-new → delayed activate-old` quanto
+`activate-new → first-stage-old → activate-old`. O insert também converge em
+`unique_violation`: relê a tupla e só aceita replay se timestamp, schema, hash e
+todos os payloads forem idênticos. As RPCs `SECURITY DEFINER` usam somente
+`pg_catalog` no `search_path` e referências públicas qualificadas.
 
 ## Frontend
 
@@ -120,6 +130,8 @@ RED observado antes da implementação:
 - o módulo profundo e a página falharam por imports inexistentes;
 - sentinelas falharam pela ausência de `/meu-plano` e do adapter;
 - o redirect autenticado ainda devolvia `/` em vez de `/meu-plano`.
+- o follow-up P1 falhou em 5 contratos porque a precedência ainda dependia da
+  ordem local de chegada e não persistia o timestamp monotônico da fonte.
 
 GREEN:
 
@@ -127,10 +139,15 @@ GREEN:
 - `npm run lint`: aprovado;
 - `npm run build`: aprovado, inclusive geração do service worker PWA;
 - PostgreSQL 17 descartável: migration + teste comportamental aprovados com
-  staging, replay, conflito, incompletude, hash mismatch, readback/counts,
-  ativação, fence `staged-old → activate-new → delayed activate-old`,
+  staging, replay, conflito inclusive troca de timestamp, dieta/treino parciais,
+  hash mismatch, readback/counts, empate fail-safe, ativação, fences
+  `staged-old → activate-new → delayed activate-old` e
+  `activate-new → first-stage-old → activate-old`,
   supersedência, replay terminal, RPCs sob `service_role`, negação direta a
   `authenticated` e RLS entre duas contas sintéticas;
+- duas conexões PostgreSQL reais fizeram stage simultâneo da mesma chave: uma
+  criação, um replay, uma única linha e bloqueio observado de `2529 ms` sob o
+  lock por usuário;
 - `git diff --check`: aprovado;
 - scans de segredo, PII e contratos estrangeiros: aprovados sem conteúdo bruto;
 - TestSprite CLI 0.4.0 e autenticação: preflight aprovado; execução pendente
@@ -157,8 +174,11 @@ GREEN:
 - A migration foi exercitada apenas em PostgreSQL descartável e não foi aplicada
   a nenhum Supabase vivo.
 - A Dashboard precisa aceitar `superseded` como readback terminal não publicável
-  em replays antigos; o coordenador confirmou esse alinhamento fora deste
-  worktree.
+  em replays antigos; esse status bridge permanece deliberadamente fora deste
+  follow-up.
+- A Dashboard também precisa revalidar `protocol.updated_at`, enviá-lo como
+  `p_source_protocol_updated_at` e conferir o mesmo valor no readback antes de
+  ativar; esta contraparte não foi alterada neste worktree.
 - TestSprite permanece pendente até existir uma URL implantada com este commit.
 - Não houve device smoke ou QA visual em navegador implantado; testes SSR,
   lint, TypeScript e build cobrem o corte local.

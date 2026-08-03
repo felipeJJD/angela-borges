@@ -43,6 +43,7 @@ describe('0006 personalized plan migration', () => {
     expect(sql).toMatch(/diet jsonb not null/)
     expect(sql).toMatch(/training jsonb not null/)
     expect(sql).toMatch(/generation_metadata jsonb not null/)
+    expect(sql).toMatch(/source_protocol_updated_at timestamptz not null/)
     expect(sql).toMatch(/state text not null[^;]+staged[^;]+active[^;]+superseded/)
     expect(sql).toContain("schema_version = 'angela-plan.v1'")
     expect(sql).toContain('protocol_version <= 9007199254740991')
@@ -63,7 +64,7 @@ describe('0006 personalized plan migration', () => {
     const compact = sql.replace(/\s+/g, ' ')
 
     expect(compact).toContain(
-      'stage_angela_plan( p_user_id uuid, p_protocol_id uuid, p_protocol_version bigint, p_schema_version text, p_snapshot_hash text, p_diet jsonb, p_training jsonb, p_generation_metadata jsonb )',
+      'stage_angela_plan( p_user_id uuid, p_protocol_id uuid, p_protocol_version bigint, p_source_protocol_updated_at timestamptz, p_schema_version text, p_snapshot_hash text, p_diet jsonb, p_training jsonb, p_generation_metadata jsonb )',
     )
     expect(compact).toContain(
       'read_angela_plan_delivery( p_user_id uuid, p_protocol_id uuid, p_protocol_version bigint )',
@@ -77,7 +78,7 @@ describe('0006 personalized plan migration', () => {
     expect(sql).not.toMatch(/digest\s*\(|encode\s*\(/)
 
     for (const signature of [
-      'stage_angela_plan(uuid, uuid, bigint, text, text, jsonb, jsonb, jsonb)',
+      'stage_angela_plan(uuid, uuid, bigint, timestamptz, text, text, jsonb, jsonb, jsonb)',
       'read_angela_plan_delivery(uuid, uuid, bigint)',
       'activate_angela_plan(uuid, uuid, bigint, text)',
     ]) {
@@ -100,6 +101,7 @@ describe('0006 personalized plan migration', () => {
       'user_id',
       'protocol_id',
       'protocol_version',
+      'source_protocol_updated_at',
       'schema_version',
       'diet',
       'training',
@@ -122,6 +124,7 @@ describe('0006 personalized plan migration', () => {
     const activate = functionSql(sql, 'activate_angela_plan')
 
     for (const field of [
+      'source_protocol_updated_at',
       'snapshot_hash',
       'schema_version',
       'diet',
@@ -137,8 +140,8 @@ describe('0006 personalized plan migration', () => {
 
     expect(activate).toContain('for update')
     expect(activate).toContain('angela_plan_hash_mismatch')
-    expect(activate).toContain('delivery_sequence')
-    expect(activate).toContain('max(')
+    expect(activate).toContain('source_protocol_updated_at')
+    expect(activate).not.toContain('delivery_sequence')
     expect(activate).toContain("state in ('active', 'staged')")
     expect(activate).toMatch(
       /update public\.angela_personalized_plans[\s\S]+state = 'superseded'/,
@@ -150,7 +153,7 @@ describe('0006 personalized plan migration', () => {
     expect(activate).toContain("'delivery'")
   })
 
-  it('fences delayed old activations without exposing internal order', () => {
+  it('fences first-arriving stale source versions after a newer activation', () => {
     const sql = migration()
     const readback = functionSql(sql, 'read_angela_plan_delivery')
     const testSql = harness()
@@ -159,9 +162,12 @@ describe('0006 personalized plan migration', () => {
       /state = 'superseded'[^;]+activated_at is null[^;]+superseded_at is not null/,
     )
     expect(readback).not.toContain("'delivery_sequence'")
+    expect(readback).toContain("'source_protocol_updated_at'")
     expect(testSql).toContain('staged-old -> activate-new -> delayed activate-old')
+    expect(testSql).toContain('activate-new -> first-stage-old -> activate-old')
     expect(testSql).toContain('angela_plan_activation_stale')
     expect(testSql).toContain("delivery,state}' <> 'superseded'")
+    expect(testSql).toContain('partial training unexpectedly staged')
   })
 
   it('hardens every definer RPC to pg_catalog-only resolution', () => {
@@ -188,6 +194,9 @@ describe('0006 personalized plan migration', () => {
 
   it('lets an authenticated student read only her active row and never write', () => {
     const sql = migration()
+    const authenticatedColumns = /grant select \(([^)]+)\) on public\.angela_personalized_plans to authenticated/.exec(
+      sql.replace(/\s+/g, ' '),
+    )?.[1]
 
     expect(sql).toContain(
       'alter table public.angela_personalized_plans enable row level security',
@@ -201,6 +210,7 @@ describe('0006 personalized plan migration', () => {
     expect(sql).toMatch(
       /grant select \([^)]+\) on public\.angela_personalized_plans to authenticated/,
     )
+    expect(authenticatedColumns).not.toContain('source_protocol_updated_at')
     expect(sql).not.toMatch(
       /grant (insert|update|delete|all)[^;]+angela_personalized_plans[^;]+authenticated/,
     )
