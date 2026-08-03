@@ -112,4 +112,111 @@ describe('Supabase Angela plan delivery reader', () => {
       p_idempotency_key: '44444444-4444-4444-8444-444444444444',
     })
   })
+
+  it('asks the authenticated Edge bridge for plan status with only the idempotency key', async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      data: {
+        schema_version: 'angela-plan-status.v1',
+        pipeline: { state: 'building' },
+      },
+      error: null,
+    })
+    const client = { functions: { invoke } } as unknown as SupabaseClient
+    const reader = new SupabaseAngelaPlanDeliverySource(client)
+
+    await expect(
+      reader.readPlanPipelineStatus(
+        '44444444-4444-4444-8444-444444444444',
+      ),
+    ).resolves.toEqual({ state: 'building' })
+    expect(invoke).toHaveBeenCalledWith('angela-anamnesis-submit', {
+      body: {
+        action: 'plan_status',
+        idempotency_key: '44444444-4444-4444-8444-444444444444',
+      },
+    })
+  })
+
+  it.each([
+    [
+      { state: 'published' },
+      { state: 'published' },
+    ],
+    [
+      {
+        state: 'failed',
+        code: 'plan_generation_failed',
+        retryable: false,
+      },
+      {
+        state: 'failed',
+        code: 'plan_generation_failed',
+        retryable: false,
+      },
+    ],
+    [
+      {
+        state: 'failed',
+        code: 'plan_publication_failed',
+        retryable: false,
+      },
+      {
+        state: 'failed',
+        code: 'plan_publication_failed',
+        retryable: false,
+      },
+    ],
+  ])('accepts the allowlisted pipeline variant %#', async (pipeline, expected) => {
+    const client = {
+      functions: {
+        invoke: vi.fn().mockResolvedValue({
+          data: { schema_version: 'angela-plan-status.v1', pipeline },
+          error: null,
+        }),
+      },
+    } as unknown as SupabaseClient
+
+    await expect(
+      new SupabaseAngelaPlanDeliverySource(client).readPlanPipelineStatus(
+        '44444444-4444-4444-8444-444444444444',
+      ),
+    ).resolves.toEqual(expected)
+  })
+
+  it.each([
+    { schema_version: 'angela-plan-status.v2', pipeline: { state: 'building' } },
+    {
+      schema_version: 'angela-plan-status.v1',
+      pipeline: { state: 'failed', code: 'raw_worker_error', retryable: false },
+    },
+    {
+      schema_version: 'angela-plan-status.v1',
+      pipeline: {
+        state: 'failed',
+        code: 'plan_generation_failed',
+        retryable: true,
+      },
+    },
+    {
+      schema_version: 'angela-plan-status.v1',
+      pipeline: { state: 'published', student_name: 'synthetic-person' },
+    },
+    {
+      schema_version: 'angela-plan-status.v1',
+      pipeline: { state: 'building' },
+      user_id: USER_ID,
+    },
+  ])('rejects malformed, expanded, or PII-bearing response %#', async (data) => {
+    const client = {
+      functions: {
+        invoke: vi.fn().mockResolvedValue({ data, error: null }),
+      },
+    } as unknown as SupabaseClient
+
+    await expect(
+      new SupabaseAngelaPlanDeliverySource(client).readPlanPipelineStatus(
+        '44444444-4444-4444-8444-444444444444',
+      ),
+    ).rejects.toThrow('Invalid plan pipeline status response')
+  })
 })

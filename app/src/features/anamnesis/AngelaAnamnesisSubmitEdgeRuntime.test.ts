@@ -27,6 +27,14 @@ const deliveryPath = resolve(
   'angela-anamnesis-submit',
   'delivery.ts',
 )
+const planStatusPath = resolve(
+  process.cwd(),
+  '..',
+  'supabase',
+  'functions',
+  'angela-anamnesis-submit',
+  'plan-status.ts',
+)
 const supabaseConfigPath = resolve(
   process.cwd(),
   '..',
@@ -37,7 +45,7 @@ const supabaseConfigPath = resolve(
 describe('angela-anamnesis-submit Edge runtime', () => {
   it('keeps privileged configuration server-only and stages bounded idempotent outbox delivery', () => {
     const source = readFileSync(edgePath, 'utf8')
-    const combined = `${source}\n${readFileSync(configPath, 'utf8')}\n${readFileSync(deliveryPath, 'utf8')}`
+    const combined = `${source}\n${readFileSync(configPath, 'utf8')}\n${readFileSync(deliveryPath, 'utf8')}\n${readFileSync(planStatusPath, 'utf8')}`
 
     expect(source).toContain('Deno.serve')
     expect(combined).toContain('ANGELA_SUPABASE_URL')
@@ -45,6 +53,8 @@ describe('angela-anamnesis-submit Edge runtime', () => {
     expect(combined).toContain('ANGELA_DASHBOARD_WEBHOOK_URL')
     expect(combined).toContain('ANGELA_WEBHOOK_HMAC_SECRET')
     expect(combined).toContain('ANGELA_DASHBOARD_DELIVERY_JWT_SECRET')
+    expect(combined).toContain('ANGELA_DASHBOARD_STATUS_URL')
+    expect(combined).toContain('ANGELA_DASHBOARD_STATUS_JWT_SECRET')
     expect(source).toContain('auth.getUser')
     expect(source).toMatch(/["']submit_anamnesis_draft["']/)
     expect(source).toMatch(/["']claim_dashboard_outbox["']/)
@@ -54,6 +64,38 @@ describe('angela-anamnesis-submit Edge runtime', () => {
     expect(source).toContain('accepted_pending')
     expect(combined).not.toMatch(/console\.(log|info|warn|error)/)
     expect(combined).not.toContain('VITE_')
+  })
+
+  it('routes authenticated plan status through caller RLS before any submit-path admin client', () => {
+    const source = readFileSync(edgePath, 'utf8')
+    const statusIndex = source.indexOf('if (parsed.action === "plan_status")')
+    const authenticatedIndex = source.indexOf(
+      'const authenticated = await authenticateUser',
+      statusIndex,
+    )
+    const submitAdminIndex = source.lastIndexOf('const adminClient = createClient')
+    const statusBranch = source.slice(statusIndex, authenticatedIndex)
+    const loadConfigStart = source.indexOf('function loadConfig()')
+    const loadConfigEnd = source.indexOf('function loadPlanStatusConfig', loadConfigStart)
+    const baseConfigLoader = source.slice(loadConfigStart, loadConfigEnd)
+
+    expect(source).toContain('parseAngelaPlanStatusBrowserRequest')
+    expect(source).toContain('queryAngelaPlanStatus')
+    expect(source).toContain('.from("anamnesis_submissions")')
+    expect(source).toContain('.eq("user_id", userId)')
+    expect(source).toContain('.eq("idempotency_key", idempotencyKey)')
+    expect(statusIndex).toBeGreaterThan(-1)
+    expect(statusBranch).toContain('loadPlanStatusConfig(config)')
+    expect(statusBranch).toContain('statusConfig.supabaseAnonKey')
+    expect(statusBranch).toContain('const statusUser = await authenticateUser')
+    expect(statusBranch).not.toContain('serviceRoleKey')
+    expect(statusBranch).not.toContain('adminClient')
+    expect(authenticatedIndex).toBeGreaterThan(statusIndex)
+    expect(submitAdminIndex).toBeGreaterThan(statusIndex)
+    expect(baseConfigLoader).not.toContain('ANGELA_DASHBOARD_STATUS_URL')
+    expect(baseConfigLoader).not.toContain('ANGELA_DASHBOARD_STATUS_JWT_SECRET')
+    expect(source).toContain('"cache-control": "no-store"')
+    expect(statusBranch).toContain('redirect: statusRequest.redirect')
   })
 
   it('uses atomic TS-hashed submit plus status and a separately authenticated service drainer', () => {

@@ -1,6 +1,9 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-import { resolveAngelaEdgeConfig } from "./config.ts";
+import {
+  resolveAngelaEdgeConfig,
+  resolveAngelaPlanStatusConfig,
+} from "./config.ts";
 import {
   assertValidCompleteAnamnesisAnswers,
   type CanonicalAnswers,
@@ -15,13 +18,17 @@ import {
   deliveryHttpStatus,
   drainDashboardOutbox,
 } from "./delivery.ts";
+import {
+  parseAngelaPlanStatusBrowserRequest,
+  queryAngelaPlanStatus,
+} from "./plan-status.ts";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DELIVERY_TIMEOUT_MS = 8_000;
 const MAX_ACKNOWLEDGMENT_BYTES = 4_096;
 
-type Action = "submit" | "status" | "drain";
+type Action = "submit" | "status" | "plan_status" | "drain";
 type SubmitRequest = Readonly<{
   action: "submit";
   draftId: string;
@@ -33,8 +40,16 @@ type StatusRequest = Readonly<{
   action: "status";
   idempotencyKey: string;
 }>;
+type PlanStatusRequest = Readonly<{
+  action: "plan_status";
+  idempotencyKey: string;
+}>;
 type DrainRequest = Readonly<{ action: "drain"; limit: number }>;
-type ParsedRequest = SubmitRequest | StatusRequest | DrainRequest;
+type ParsedRequest =
+  | SubmitRequest
+  | StatusRequest
+  | PlanStatusRequest
+  | DrainRequest;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -50,6 +65,11 @@ function oneRow(value: unknown): Record<string, unknown> | null {
 function parseRequest(value: unknown): ParsedRequest {
   if (!isRecord(value)) throw new Error("INVALID_REQUEST");
   const action = value.action as Action;
+  if (action === "plan_status") {
+    const statusRequest = parseAngelaPlanStatusBrowserRequest(value);
+    if (!statusRequest) throw new Error("INVALID_REQUEST");
+    return { action, idempotencyKey: statusRequest.idempotencyKey };
+  }
   if (action === "status") {
     if (
       typeof value.idempotency_key !== "string" ||
@@ -103,6 +123,18 @@ function loadConfig() {
   );
 }
 
+function loadPlanStatusConfig(config: ReturnType<typeof loadConfig>) {
+  const keys = [
+    "ANGELA_DASHBOARD_STATUS_URL",
+    "ANGELA_DASHBOARD_STATUS_JWT_SECRET",
+    "SUPABASE_ANON_KEY",
+  ] as const;
+  return resolveAngelaPlanStatusConfig(
+    Object.fromEntries(keys.map((key) => [key, Deno.env.get(key)])),
+    config,
+  );
+}
+
 function corsHeaders(
   origin: string | null,
   allowedOrigins: readonly string[],
@@ -131,6 +163,7 @@ function jsonResponse(
     headers: {
       ...corsHeaders(origin, allowedOrigins),
       "content-type": "application/json",
+      "cache-control": "no-store",
     },
   });
 }
@@ -246,8 +279,34 @@ async function readBoundedBody(response: Response): Promise<string> {
   return new TextDecoder("utf-8", { fatal: true }).decode(body);
 }
 
+type EdgeAdminClient = Readonly<{
+  from(table: string): Readonly<{
+    select(columns: string): Readonly<{
+      eq(column: string, value: unknown): Readonly<{
+        maybeSingle(): PromiseLike<Readonly<{ data: unknown; error: unknown }>>;
+      }>;
+    }>;
+  }>;
+  auth: Readonly<{
+    admin: Readonly<{
+      getUserById(userId: string): PromiseLike<
+        Readonly<{
+          data: Readonly<{
+            user: Readonly<{ email?: string | null }> | null;
+          }>;
+          error: unknown;
+        }>
+      >;
+    }>;
+  }>;
+  rpc(
+    functionName: string,
+    parameters: Readonly<Record<string, unknown>>,
+  ): PromiseLike<Readonly<{ data: unknown; error: unknown }>>;
+}>;
+
 function createDeliveryPorts(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: EdgeAdminClient,
 ): DashboardDeliveryPorts {
   return {
     async resolveProfile(userId) {
@@ -259,7 +318,8 @@ function createDeliveryPorts(
       const { data: authData, error: authError } = await adminClient.auth.admin
         .getUserById(userId);
       if (
-        profileError || authError || !profile || profile.id !== userId ||
+        profileError || authError || !isRecord(profile) ||
+        profile.id !== userId ||
         typeof profile.full_name !== "string" || !profile.full_name.trim() ||
         !authData.user?.email
       ) {
@@ -320,11 +380,12 @@ function deliveryConfig(
 
 async function authenticateUser(
   authorization: string,
-  config: ReturnType<typeof loadConfig>,
+  supabaseUrl: string,
+  apiKey: string,
 ) {
   const token = bearerToken(authorization);
   if (!token) return null;
-  const callerClient = createClient(config.supabaseUrl, config.serviceRoleKey, {
+  const callerClient = createClient(supabaseUrl, apiKey, {
     global: { headers: { Authorization: authorization } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -339,7 +400,10 @@ Deno.serve(async (request: Request): Promise<Response> => {
   } catch {
     return new Response(JSON.stringify({ error: "service_unavailable" }), {
       status: 503,
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+      },
     });
   }
 
@@ -374,12 +438,16 @@ Deno.serve(async (request: Request): Promise<Response> => {
   }
 
   const authorization = request.headers.get("authorization") ?? "";
-  const adminClient = createClient(config.supabaseUrl, config.serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const ports = createDeliveryPorts(adminClient);
 
   if (parsed.action === "drain") {
+    const adminClient = createClient(
+      config.supabaseUrl,
+      config.serviceRoleKey,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    const ports = createDeliveryPorts(
+      adminClient as unknown as EdgeAdminClient,
+    );
     const token = bearerToken(authorization);
     if (!token || !constantTimeEqual(token, config.outboxDrainToken)) {
       return jsonResponse(
@@ -442,7 +510,82 @@ Deno.serve(async (request: Request): Promise<Response> => {
       config.frontendAllowedOrigins,
     );
   }
-  const authenticated = await authenticateUser(authorization, config);
+
+  if (parsed.action === "plan_status") {
+    let statusConfig: ReturnType<typeof loadPlanStatusConfig>;
+    try {
+      statusConfig = loadPlanStatusConfig(config);
+    } catch {
+      return jsonResponse(
+        { error: "status_unavailable" },
+        503,
+        origin,
+        config.frontendAllowedOrigins,
+      );
+    }
+    const statusUser = await authenticateUser(
+      authorization,
+      config.supabaseUrl,
+      statusConfig.supabaseAnonKey,
+    );
+    if (!statusUser) {
+      return jsonResponse(
+        { error: "unauthorized" },
+        401,
+        origin,
+        config.frontendAllowedOrigins,
+      );
+    }
+    const statusResult = await queryAngelaPlanStatus(
+      {
+        userId: statusUser.user.id,
+        idempotencyKey: parsed.idempotencyKey,
+        nowSeconds: Math.floor(Date.now() / 1000),
+      },
+      {
+        dashboardStatusUrl: statusConfig.dashboardStatusUrl,
+        statusJwtSecret: statusConfig.statusJwtSecret,
+        timeoutMs: DELIVERY_TIMEOUT_MS,
+      },
+      {
+        async resolveOwnedSubmission(userId, idempotencyKey) {
+          const { data, error } = await statusUser.callerClient
+            .from("anamnesis_submissions")
+            .select("id, user_id, idempotency_key, correlation_id")
+            .eq("user_id", userId)
+            .eq("idempotency_key", idempotencyKey)
+            .maybeSingle();
+          return { data, error: Boolean(error) };
+        },
+        async post(statusRequest) {
+          const response = await fetch(statusRequest.url, {
+            method: statusRequest.method,
+            redirect: statusRequest.redirect,
+            headers: statusRequest.headers,
+            body: statusRequest.body,
+            signal: AbortSignal.timeout(statusRequest.timeoutMs),
+          });
+          return {
+            status: response.status,
+            contentType: response.headers.get("content-type"),
+            body: await readBoundedBody(response),
+          };
+        },
+      },
+    );
+    return jsonResponse(
+      statusResult.body,
+      statusResult.httpStatus,
+      origin,
+      config.frontendAllowedOrigins,
+    );
+  }
+
+  const authenticated = await authenticateUser(
+    authorization,
+    config.supabaseUrl,
+    config.serviceRoleKey,
+  );
   if (!authenticated) {
     return jsonResponse(
       { error: "unauthorized" },
@@ -467,6 +610,11 @@ Deno.serve(async (request: Request): Promise<Response> => {
         config.frontendAllowedOrigins,
       );
   }
+
+  const adminClient = createClient(config.supabaseUrl, config.serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const ports = createDeliveryPorts(adminClient as unknown as EdgeAdminClient);
 
   const { data: draft, error: draftError } = await authenticated.callerClient
     .from("anamnesis_drafts")

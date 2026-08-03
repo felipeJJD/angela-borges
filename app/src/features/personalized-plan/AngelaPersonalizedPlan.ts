@@ -68,6 +68,12 @@ export type AngelaPersonalizedPlanState =
       reason: 'delivery-failed' | 'invalid-published-plan' | 'unavailable'
       retryable: boolean
     }>
+  | Readonly<{
+      kind: 'failed'
+      reason: 'pipeline-failed'
+      code: AngelaPlanPipelineFailureCode
+      retryable: false
+    }>
   | Readonly<{ kind: 'published'; plan: AngelaPublishedPlan }>
 
 export type AngelaAnamnesisSubmissionPointer = Readonly<{
@@ -81,6 +87,19 @@ export type AngelaAnamnesisDeliveryStatus = Readonly<{
   attempts: number
 }>
 
+export type AngelaPlanPipelineFailureCode =
+  | 'plan_generation_failed'
+  | 'plan_publication_failed'
+
+export type AngelaPlanPipelineStatus =
+  | Readonly<{ state: 'building' }>
+  | Readonly<{ state: 'published' }>
+  | Readonly<{
+      state: 'failed'
+      code: AngelaPlanPipelineFailureCode
+      retryable: false
+    }>
+
 /**
  * Authenticated read seam. The browser adapter is deliberately read-only and
  * binds every request to the current session user.
@@ -93,6 +112,9 @@ export interface AngelaPlanDeliverySource {
   readAnamnesisDeliveryStatus(
     idempotencyKey: string,
   ): Promise<AngelaAnamnesisDeliveryStatus | null>
+  readPlanPipelineStatus(
+    idempotencyKey: string,
+  ): Promise<AngelaPlanPipelineStatus | null>
 }
 
 export interface AngelaPersonalizedPlan {
@@ -404,6 +426,39 @@ export function createAngelaPersonalizedPlan(
             kind: 'failed',
             reason: 'delivery-failed',
             retryable: delivery.retryable,
+          }
+        }
+        if (delivery.status === 'delivered') {
+          const pipeline = await source.readPlanPipelineStatus(
+            submission.idempotencyKey,
+          )
+          if (pipeline?.state === 'failed') {
+            return {
+              kind: 'failed',
+              reason: 'pipeline-failed',
+              code: pipeline.code,
+              retryable: false,
+            }
+          }
+          if (pipeline?.state === 'published') {
+            const publishedPlan = await source.readActivePlan(userId)
+            if (publishedPlan !== null) {
+              try {
+                return {
+                  kind: 'published',
+                  plan: await mapActivePlan(publishedPlan, userId),
+                }
+              } catch (error) {
+                if (error instanceof InvalidPublishedPlanError) {
+                  return {
+                    kind: 'failed',
+                    reason: 'invalid-published-plan',
+                    retryable: false,
+                  }
+                }
+                throw error
+              }
+            }
           }
         }
         return {

@@ -4,6 +4,7 @@ import type {
   AngelaAnamnesisDeliveryStatus,
   AngelaAnamnesisSubmissionPointer,
   AngelaPlanDeliverySource,
+  AngelaPlanPipelineStatus,
 } from './AngelaPersonalizedPlan'
 
 const PLAN_COLUMNS = [
@@ -32,6 +33,50 @@ function rows(value: unknown): unknown[] {
   if (value === null) return []
   if (!Array.isArray(value)) throw new Error('Invalid plan delivery response')
   return value
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const actual = Object.keys(value).sort()
+  const wanted = [...expected].sort()
+  return (
+    actual.length === wanted.length &&
+    actual.every((key, index) => key === wanted[index])
+  )
+}
+
+function planPipelineStatus(value: unknown): AngelaPlanPipelineStatus {
+  if (
+    !isObject(value) ||
+    !hasExactKeys(value, ['schema_version', 'pipeline']) ||
+    value.schema_version !== 'angela-plan-status.v1' ||
+    !isObject(value.pipeline)
+  ) {
+    throw new Error('Invalid plan pipeline status response')
+  }
+  const pipeline = value.pipeline
+  if (
+    (pipeline.state === 'building' || pipeline.state === 'published') &&
+    hasExactKeys(pipeline, ['state'])
+  ) {
+    return { state: pipeline.state }
+  }
+  if (
+    pipeline.state === 'failed' &&
+    hasExactKeys(pipeline, ['state', 'code', 'retryable']) &&
+    (pipeline.code === 'plan_generation_failed' ||
+      pipeline.code === 'plan_publication_failed') &&
+    pipeline.retryable === false
+  ) {
+    return {
+      state: 'failed',
+      code: pipeline.code,
+      retryable: false,
+    }
+  }
+  throw new Error('Invalid plan pipeline status response')
 }
 
 function deliveryStatus(value: unknown): AngelaAnamnesisDeliveryStatus | null {
@@ -115,5 +160,21 @@ export class SupabaseAngelaPlanDeliverySource
     )
     if (error) throw new Error('Não foi possível confirmar a entrega da anamnese.')
     return deliveryStatus(data)
+  }
+
+  async readPlanPipelineStatus(
+    idempotencyKey: string,
+  ): Promise<AngelaPlanPipelineStatus> {
+    const { data, error } = await this.client.functions.invoke(
+      'angela-anamnesis-submit',
+      {
+        body: {
+          action: 'plan_status',
+          idempotency_key: idempotencyKey,
+        },
+      },
+    )
+    if (error) throw new Error('Não foi possível consultar o andamento do plano.')
+    return planPipelineStatus(data)
   }
 }

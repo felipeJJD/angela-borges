@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   createAngelaPersonalizedPlan,
@@ -42,6 +42,7 @@ function source(
     readActivePlan: async () => null,
     readLatestAnamnesisSubmission: async () => null,
     readAnamnesisDeliveryStatus: async () => null,
+    readPlanPipelineStatus: async () => null,
     ...overrides,
   }
 }
@@ -115,6 +116,130 @@ describe('Angela personalized plan module', () => {
       reason: 'delivery-failed',
       retryable: false,
     })
+  })
+
+  it('surfaces a terminal generation failure after Dashboard delivery', async () => {
+    const module = createAngelaPersonalizedPlan(
+      USER_ID,
+      source({
+        readLatestAnamnesisSubmission: async () => ({
+          idempotencyKey: '44444444-4444-4444-8444-444444444444',
+          submittedAt: '2026-08-03T17:00:00.000Z',
+        }),
+        readAnamnesisDeliveryStatus: async () => ({
+          status: 'delivered',
+          retryable: false,
+          attempts: 1,
+        }),
+        readPlanPipelineStatus: async () => ({
+          state: 'failed',
+          code: 'plan_generation_failed',
+          retryable: false,
+        }),
+      }),
+    )
+
+    await expect(module.load()).resolves.toEqual({
+      kind: 'failed',
+      reason: 'pipeline-failed',
+      code: 'plan_generation_failed',
+      retryable: false,
+    })
+  })
+
+  it('re-reads the active row when the pipeline reports publication', async () => {
+    let firstRead = true
+    const module = createAngelaPersonalizedPlan(
+      USER_ID,
+      source({
+        readActivePlan: async () => {
+          if (firstRead) {
+            firstRead = false
+            return null
+          }
+          return activeRow()
+        },
+        readLatestAnamnesisSubmission: async () => ({
+          idempotencyKey: '44444444-4444-4444-8444-444444444444',
+          submittedAt: '2026-08-03T17:00:00.000Z',
+        }),
+        readAnamnesisDeliveryStatus: async () => ({
+          status: 'delivered',
+          retryable: false,
+          attempts: 1,
+        }),
+        readPlanPipelineStatus: async () => ({ state: 'published' }),
+      }),
+    )
+
+    await expect(module.load()).resolves.toMatchObject({
+      kind: 'published',
+      plan: { userId: USER_ID, protocolVersion: 3 },
+    })
+  })
+
+  it('keeps building when publication wins remotely before the active row is visible', async () => {
+    const module = createAngelaPersonalizedPlan(
+      USER_ID,
+      source({
+        readLatestAnamnesisSubmission: async () => ({
+          idempotencyKey: '44444444-4444-4444-8444-444444444444',
+          submittedAt: '2026-08-03T17:00:00.000Z',
+        }),
+        readAnamnesisDeliveryStatus: async () => ({
+          status: 'delivered',
+          retryable: false,
+          attempts: 1,
+        }),
+        readPlanPipelineStatus: async () => ({ state: 'published' }),
+      }),
+    )
+
+    await expect(module.load()).resolves.toEqual({
+      kind: 'building',
+      submittedAt: '2026-08-03T17:00:00.000Z',
+      deliveryStatus: 'delivered',
+    })
+  })
+
+  it('lets an atomic active plan win without consulting pipeline status', async () => {
+    const readPlanPipelineStatus = vi.fn(async () => ({
+      state: 'failed' as const,
+      code: 'plan_generation_failed' as const,
+      retryable: false as const,
+    }))
+    const module = createAngelaPersonalizedPlan(
+      USER_ID,
+      source({
+        readActivePlan: async () => activeRow(),
+        readPlanPipelineStatus,
+      }),
+    )
+
+    await expect(module.load()).resolves.toMatchObject({ kind: 'published' })
+    expect(readPlanPipelineStatus).not.toHaveBeenCalled()
+  })
+
+  it('does not query generation while intake delivery is still pending', async () => {
+    const readPlanPipelineStatus = vi.fn(async () => ({ state: 'building' as const }))
+    const module = createAngelaPersonalizedPlan(
+      USER_ID,
+      source({
+        readLatestAnamnesisSubmission: async () => ({
+          idempotencyKey: '44444444-4444-4444-8444-444444444444',
+          submittedAt: '2026-08-03T17:00:00.000Z',
+        }),
+        readAnamnesisDeliveryStatus: async () => ({
+          status: 'accepted_pending',
+          retryable: true,
+          attempts: 1,
+        }),
+        readPlanPipelineStatus,
+      }),
+    )
+
+    await expect(module.load()).resolves.toMatchObject({ kind: 'building' })
+    expect(readPlanPipelineStatus).not.toHaveBeenCalled()
   })
 
   it('publishes diet and training from one atomic active row with structural counts', async () => {

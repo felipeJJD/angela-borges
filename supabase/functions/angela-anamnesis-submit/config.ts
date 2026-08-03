@@ -1,6 +1,8 @@
 export const EXPECTED_ANGELA_SUPABASE_URL =
   "https://roovdrcksjfinxhbuxxo.supabase.co" as const;
 export const ANGELA_DASHBOARD_PATH = "/api/anamnese/from-app" as const;
+export const ANGELA_DASHBOARD_STATUS_PATH =
+  "/api/angela-plan/v1/status" as const;
 
 export type AngelaEdgeEnvironment = "production" | "development";
 
@@ -14,6 +16,12 @@ export type AngelaEdgeConfig = Readonly<{
   deliveryJwtSecret: string;
   frontendAllowedOrigins: readonly string[];
   outboxDrainToken: string;
+}>;
+
+export type AngelaPlanStatusEdgeConfig = Readonly<{
+  dashboardStatusUrl: string;
+  statusJwtSecret: string;
+  supabaseAnonKey: string;
 }>;
 
 type EnvironmentSource = Readonly<Record<string, string | undefined>>;
@@ -90,6 +98,11 @@ export function resolveAngelaEdgeConfig(
     return invalidConfig();
   }
 
+  const deliveryJwtSecret = required(
+    source,
+    "ANGELA_DASHBOARD_DELIVERY_JWT_SECRET",
+  );
+
   const frontendAllowedOrigins = required(
     source,
     "ANGELA_FRONTEND_ALLOWED_ORIGINS",
@@ -108,11 +121,48 @@ export function resolveAngelaEdgeConfig(
     dashboardWebhookUrl,
     dashboardExpectedOrigin,
     hmacSecret: required(source, "ANGELA_WEBHOOK_HMAC_SECRET"),
-    deliveryJwtSecret: required(
-      source,
-      "ANGELA_DASHBOARD_DELIVERY_JWT_SECRET",
-    ),
+    deliveryJwtSecret,
     frontendAllowedOrigins,
     outboxDrainToken: required(source, "ANGELA_OUTBOX_DRAIN_TOKEN"),
   };
+}
+
+export function resolveAngelaPlanStatusConfig(
+  source: EnvironmentSource,
+  edgeConfig: Pick<
+    AngelaEdgeConfig,
+    "dashboardExpectedOrigin" | "deliveryJwtSecret" | "serviceRoleKey"
+  >,
+): AngelaPlanStatusEdgeConfig {
+  const dashboardStatusUrl = required(source, "ANGELA_DASHBOARD_STATUS_URL");
+  let statusUrl: URL;
+  try {
+    statusUrl = new URL(dashboardStatusUrl);
+  } catch {
+    return invalidConfig();
+  }
+  if (
+    statusUrl.protocol !== "https:" ||
+    statusUrl.origin !== edgeConfig.dashboardExpectedOrigin ||
+    statusUrl.pathname !== ANGELA_DASHBOARD_STATUS_PATH ||
+    statusUrl.username ||
+    statusUrl.password ||
+    statusUrl.search ||
+    statusUrl.hash
+  ) {
+    return invalidConfig();
+  }
+
+  const statusJwtSecret = required(
+    source,
+    "ANGELA_DASHBOARD_STATUS_JWT_SECRET",
+  );
+  const supabaseAnonKey = required(source, "SUPABASE_ANON_KEY");
+  if (
+    statusJwtSecret === edgeConfig.deliveryJwtSecret ||
+    supabaseAnonKey === edgeConfig.serviceRoleKey
+  ) {
+    return invalidConfig();
+  }
+  return { dashboardStatusUrl, statusJwtSecret, supabaseAnonKey };
 }

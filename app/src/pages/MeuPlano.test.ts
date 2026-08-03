@@ -57,6 +57,21 @@ describe('Meu Plano observable states', () => {
     expect(html).toContain('Tentar novamente')
   })
 
+  it('shows a safe terminal pipeline failure without retry or anamnesis CTA', () => {
+    const html = render({
+      kind: 'failed',
+      reason: 'pipeline-failed',
+      code: 'plan_generation_failed',
+      retryable: false,
+    })
+    expect(html).toContain('Seu plano precisa de revisão')
+    expect(html).toContain('Nossa equipe precisa revisar o processamento')
+    expect(html).not.toContain('Tentar novamente')
+    expect(html).not.toContain('Revisar anamnese')
+    expect(html).not.toContain('href="/anamnese"')
+    expect(html).not.toContain('plan_generation_failed')
+  })
+
   it('renders diet and training from the same published version with safe metadata', () => {
     const html = render(
       {

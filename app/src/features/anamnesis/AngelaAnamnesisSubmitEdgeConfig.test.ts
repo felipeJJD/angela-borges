@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   EXPECTED_ANGELA_SUPABASE_URL,
   resolveAngelaEdgeConfig,
+  resolveAngelaPlanStatusConfig,
 } from '../../../../supabase/functions/angela-anamnesis-submit/config'
 
 const validEnvironment = {
@@ -16,6 +17,13 @@ const validEnvironment = {
   ANGELA_DASHBOARD_DELIVERY_JWT_SECRET: 'synthetic-delivery-jwt-secret',
   ANGELA_FRONTEND_ALLOWED_ORIGINS: 'https://app.example.test',
   ANGELA_OUTBOX_DRAIN_TOKEN: 'synthetic-drain-token',
+} as const
+
+const validStatusEnvironment = {
+  ANGELA_DASHBOARD_STATUS_URL:
+    'https://dashboard.example.test/api/angela-plan/v1/status',
+  ANGELA_DASHBOARD_STATUS_JWT_SECRET: 'synthetic-status-jwt-secret',
+  SUPABASE_ANON_KEY: 'synthetic-public-anon-key',
 } as const
 
 describe('Angela Edge configuration', () => {
@@ -62,6 +70,80 @@ describe('Angela Edge configuration', () => {
         resolveAngelaEdgeConfig({ ...validEnvironment, ...invalid }),
       ).toThrow('ANGELA_EDGE_CONFIG_INVALID')
     }
+  })
+
+  it('pins the status endpoint and requires a secret distinct from intake', () => {
+    const edgeConfig = resolveAngelaEdgeConfig(validEnvironment)
+    expect(
+      resolveAngelaPlanStatusConfig(validStatusEnvironment, edgeConfig),
+    ).toEqual({
+      dashboardStatusUrl:
+        'https://dashboard.example.test/api/angela-plan/v1/status',
+      statusJwtSecret: 'synthetic-status-jwt-secret',
+      supabaseAnonKey: 'synthetic-public-anon-key',
+    })
+
+    const invalidVariants = [
+      {
+        ANGELA_DASHBOARD_STATUS_URL:
+          'https://dashboard.example.test/api/angela-plan/v1/status?student=1',
+      },
+      {
+        ANGELA_DASHBOARD_STATUS_URL:
+          'https://other.example.test/api/angela-plan/v1/status',
+      },
+      {
+        ANGELA_DASHBOARD_STATUS_URL:
+          'http://dashboard.example.test/api/angela-plan/v1/status',
+      },
+      {
+        ANGELA_DASHBOARD_STATUS_URL:
+          'https://dashboard.example.test/api/angela-plan/v1/legacy',
+      },
+      {
+        ANGELA_DASHBOARD_STATUS_JWT_SECRET:
+          validEnvironment.ANGELA_DASHBOARD_DELIVERY_JWT_SECRET,
+      },
+      {
+        SUPABASE_ANON_KEY: validEnvironment.ANGELA_SUPABASE_SERVICE_ROLE_KEY,
+      },
+    ]
+
+    for (const invalid of invalidVariants) {
+      expect(() =>
+        resolveAngelaPlanStatusConfig(
+          { ...validStatusEnvironment, ...invalid },
+          edgeConfig,
+        ),
+      ).toThrow('ANGELA_EDGE_CONFIG_INVALID')
+    }
+
+    const missing = { ...validStatusEnvironment } as Record<
+      string,
+      string | undefined
+    >
+    delete missing.ANGELA_DASHBOARD_STATUS_JWT_SECRET
+    expect(() => resolveAngelaPlanStatusConfig(missing, edgeConfig)).toThrow(
+      'ANGELA_EDGE_CONFIG_INVALID',
+    )
+
+    const missingUrl = { ...validStatusEnvironment } as Record<
+      string,
+      string | undefined
+    >
+    delete missingUrl.ANGELA_DASHBOARD_STATUS_URL
+    expect(() => resolveAngelaPlanStatusConfig(missingUrl, edgeConfig)).toThrow(
+      'ANGELA_EDGE_CONFIG_INVALID',
+    )
+
+    const missingAnon = { ...validStatusEnvironment } as Record<
+      string,
+      string | undefined
+    >
+    delete missingAnon.SUPABASE_ANON_KEY
+    expect(() => resolveAngelaPlanStatusConfig(missingAnon, edgeConfig)).toThrow(
+      'ANGELA_EDGE_CONFIG_INVALID',
+    )
   })
 
   it('requires an explicit frontend allowlist and permits local HTTP only in development', () => {

@@ -4,6 +4,9 @@ export const ANGELA_DELIVERY_JWT_ISSUER = "angela-anamnesis-edge" as const;
 export const ANGELA_DELIVERY_JWT_AUDIENCE =
   "nexus-dashboard-angela-intake" as const;
 export const ANGELA_DELIVERY_JWT_MAX_TTL_SECONDS = 120 as const;
+export const ANGELA_PLAN_STATUS_JWT_AUDIENCE =
+  "nexus-dashboard-angela-plan-status" as const;
+export const ANGELA_PLAN_STATUS_JWT_MAX_TTL_SECONDS = 120 as const;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -35,8 +38,39 @@ type VerifyDashboardDeliveryJwtInput = Readonly<{
   expectedCorrelationId: string;
 }>;
 
+export type DashboardPlanStatusJwtClaims = Readonly<{
+  iss: typeof ANGELA_DELIVERY_JWT_ISSUER;
+  aud: typeof ANGELA_PLAN_STATUS_JWT_AUDIENCE;
+  sub: string;
+  jti: string;
+  account_id: typeof ANGELA_ACCOUNT_ID;
+  source: "angela_app";
+  iat: number;
+  exp: number;
+}>;
+
+type CreateDashboardPlanStatusJwtInput = Readonly<{
+  secret: string;
+  userId: string;
+  idempotencyKey: string;
+  nowSeconds: number;
+  ttlSeconds?: number;
+}>;
+
+type VerifyDashboardPlanStatusJwtInput = Readonly<{
+  token: string;
+  secret: string;
+  nowSeconds: number;
+  expectedUserId: string;
+  expectedIdempotencyKey: string;
+}>;
+
 function invalidJwt(): never {
   throw new Error("ANGELA_DELIVERY_JWT_INVALID");
+}
+
+function invalidPlanStatusJwt(): never {
+  throw new Error("ANGELA_PLAN_STATUS_JWT_INVALID");
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -199,4 +233,117 @@ export async function verifyDashboardDeliveryJwt(
     invalidJwt();
   }
   return value as DashboardDeliveryJwtClaims;
+}
+
+export async function createDashboardPlanStatusJwt(
+  input: CreateDashboardPlanStatusJwtInput,
+): Promise<string> {
+  try {
+    const ttlSeconds = input.ttlSeconds ?? 60;
+    assertIdentity(input.userId, input.idempotencyKey);
+    if (
+      !input.secret ||
+      !Number.isSafeInteger(input.nowSeconds) ||
+      input.nowSeconds < 0 ||
+      !Number.isSafeInteger(ttlSeconds) ||
+      ttlSeconds < 1 ||
+      ttlSeconds > ANGELA_PLAN_STATUS_JWT_MAX_TTL_SECONDS
+    ) {
+      return invalidPlanStatusJwt();
+    }
+
+    const header = { alg: "HS256", typ: "JWT" } as const;
+    const claims: DashboardPlanStatusJwtClaims = {
+      iss: ANGELA_DELIVERY_JWT_ISSUER,
+      aud: ANGELA_PLAN_STATUS_JWT_AUDIENCE,
+      sub: input.userId,
+      jti: input.idempotencyKey,
+      account_id: ANGELA_ACCOUNT_ID,
+      source: "angela_app",
+      iat: input.nowSeconds,
+      exp: input.nowSeconds + ttlSeconds,
+    };
+    const encoder = new TextEncoder();
+    const signingInput = `${
+      base64UrlEncode(encoder.encode(JSON.stringify(header)))
+    }.${base64UrlEncode(encoder.encode(JSON.stringify(claims)))}`;
+    const signature = await hmacSha256(input.secret, signingInput);
+    return `${signingInput}.${base64UrlEncode(signature)}`;
+  } catch {
+    return invalidPlanStatusJwt();
+  }
+}
+
+export async function verifyDashboardPlanStatusJwt(
+  input: VerifyDashboardPlanStatusJwtInput,
+): Promise<DashboardPlanStatusJwtClaims> {
+  try {
+    assertIdentity(input.expectedUserId, input.expectedIdempotencyKey);
+    if (!Number.isSafeInteger(input.nowSeconds) || input.nowSeconds < 0) {
+      return invalidPlanStatusJwt();
+    }
+    const segments = input.token.split(".");
+    if (segments.length !== 3) return invalidPlanStatusJwt();
+
+    const signingInput = `${segments[0]}.${segments[1]}`;
+    const expectedSignature = await hmacSha256(input.secret, signingInput);
+    const suppliedSignature = base64UrlDecode(segments[2]);
+    if (!constantTimeEqual(expectedSignature, suppliedSignature)) {
+      return invalidPlanStatusJwt();
+    }
+
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    const header: unknown = JSON.parse(
+      decoder.decode(base64UrlDecode(segments[0])),
+    );
+    const claims: unknown = JSON.parse(
+      decoder.decode(base64UrlDecode(segments[1])),
+    );
+    if (
+      typeof header !== "object" ||
+      header === null ||
+      Array.isArray(header) ||
+      !hasExactKeys(header as Record<string, unknown>, ["alg", "typ"]) ||
+      (header as Record<string, unknown>).alg !== "HS256" ||
+      (header as Record<string, unknown>).typ !== "JWT"
+    ) {
+      return invalidPlanStatusJwt();
+    }
+    if (
+      typeof claims !== "object" || claims === null || Array.isArray(claims)
+    ) {
+      return invalidPlanStatusJwt();
+    }
+    const value = claims as Record<string, unknown>;
+    if (
+      !hasExactKeys(value, [
+        "iss",
+        "aud",
+        "sub",
+        "jti",
+        "account_id",
+        "source",
+        "iat",
+        "exp",
+      ]) ||
+      value.iss !== ANGELA_DELIVERY_JWT_ISSUER ||
+      value.aud !== ANGELA_PLAN_STATUS_JWT_AUDIENCE ||
+      value.sub !== input.expectedUserId ||
+      value.jti !== input.expectedIdempotencyKey ||
+      value.account_id !== ANGELA_ACCOUNT_ID ||
+      value.source !== "angela_app" ||
+      !Number.isSafeInteger(value.iat) ||
+      !Number.isSafeInteger(value.exp) ||
+      (value.iat as number) > input.nowSeconds + 5 ||
+      input.nowSeconds >= (value.exp as number) ||
+      (value.exp as number) <= (value.iat as number) ||
+      (value.exp as number) - (value.iat as number) >
+        ANGELA_PLAN_STATUS_JWT_MAX_TTL_SECONDS
+    ) {
+      return invalidPlanStatusJwt();
+    }
+    return value as DashboardPlanStatusJwtClaims;
+  } catch {
+    return invalidPlanStatusJwt();
+  }
 }

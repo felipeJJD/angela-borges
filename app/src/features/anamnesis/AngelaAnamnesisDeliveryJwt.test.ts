@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createDashboardDeliveryJwt,
+  createDashboardPlanStatusJwt,
   verifyDashboardDeliveryJwt,
+  verifyDashboardPlanStatusJwt,
 } from '../../../../supabase/functions/angela-anamnesis-submit/delivery-jwt'
 
 const fixture = {
@@ -138,5 +140,87 @@ describe('Dashboard delivery JWT', () => {
         }),
       ).rejects.toThrow('ANGELA_DELIVERY_JWT_INVALID')
     }
+  })
+})
+
+describe('Dashboard plan status JWT', () => {
+  const statusFixture = {
+    secret: 'synthetic-status-jwt-secret',
+    userId: fixture.userId,
+    idempotencyKey: fixture.correlationId,
+    nowSeconds: fixture.nowSeconds,
+    ttlSeconds: 60,
+  } as const
+
+  it('uses the status-only audience with an exact header and claim set', async () => {
+    const token = await createDashboardPlanStatusJwt(statusFixture)
+    const [headerSegment, claimsSegment] = token.split('.')
+    const decode = (segment: string) =>
+      JSON.parse(
+        new TextDecoder().decode(
+          Uint8Array.from(
+            atob(
+              segment.replace(/-/g, '+').replace(/_/g, '/') +
+                '='.repeat((4 - (segment.length % 4)) % 4),
+            ),
+            (character) => character.charCodeAt(0),
+          ),
+        ),
+      ) as Record<string, unknown>
+
+    expect(decode(headerSegment)).toEqual({ alg: 'HS256', typ: 'JWT' })
+    expect(decode(claimsSegment)).toEqual({
+      iss: 'angela-anamnesis-edge',
+      aud: 'nexus-dashboard-angela-plan-status',
+      sub: statusFixture.userId,
+      jti: statusFixture.idempotencyKey,
+      account_id: '6637f3b0-2e52-4b2d-86e7-6a35f3dd1613',
+      source: 'angela_app',
+      iat: statusFixture.nowSeconds,
+      exp: statusFixture.nowSeconds + 60,
+    })
+
+    await expect(
+      verifyDashboardPlanStatusJwt({
+        token,
+        secret: statusFixture.secret,
+        nowSeconds: statusFixture.nowSeconds,
+        expectedUserId: statusFixture.userId,
+        expectedIdempotencyKey: statusFixture.idempotencyKey,
+      }),
+    ).resolves.toMatchObject({
+      aud: 'nexus-dashboard-angela-plan-status',
+      jti: statusFixture.idempotencyKey,
+    })
+  })
+
+  it('rejects cross-audience tokens and TTLs above 120 seconds', async () => {
+    const statusToken = await createDashboardPlanStatusJwt(statusFixture)
+    const intakeToken = await createDashboardDeliveryJwt({
+      ...fixture,
+      secret: statusFixture.secret,
+    })
+
+    await expect(
+      verifyDashboardDeliveryJwt({
+        token: statusToken,
+        secret: statusFixture.secret,
+        nowSeconds: statusFixture.nowSeconds,
+        expectedUserId: statusFixture.userId,
+        expectedCorrelationId: statusFixture.idempotencyKey,
+      }),
+    ).rejects.toThrow('ANGELA_DELIVERY_JWT_INVALID')
+    await expect(
+      verifyDashboardPlanStatusJwt({
+        token: intakeToken,
+        secret: statusFixture.secret,
+        nowSeconds: statusFixture.nowSeconds,
+        expectedUserId: statusFixture.userId,
+        expectedIdempotencyKey: statusFixture.idempotencyKey,
+      }),
+    ).rejects.toThrow('ANGELA_PLAN_STATUS_JWT_INVALID')
+    await expect(
+      createDashboardPlanStatusJwt({ ...statusFixture, ttlSeconds: 121 }),
+    ).rejects.toThrow('ANGELA_PLAN_STATUS_JWT_INVALID')
   })
 })

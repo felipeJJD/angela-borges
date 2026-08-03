@@ -142,22 +142,31 @@ function BuildingState(
 function FailedState(
   props: Readonly<{
     online: boolean
-    reason: 'delivery-failed' | 'invalid-published-plan' | 'unavailable'
+    reason:
+      | 'delivery-failed'
+      | 'pipeline-failed'
+      | 'invalid-published-plan'
+      | 'unavailable'
     retryable: boolean
     reloading: boolean
     onReload(): void
   }>,
 ) {
   const deliveryFailed = props.reason === 'delivery-failed'
+  const pipelineFailed = props.reason === 'pipeline-failed'
   return (
     <StateShell>
       <OfflineNotice online={props.online} />
       <section className="rounded-2xl border border-red-400/25 bg-red-400/10 p-5">
         <h2 className="text-display text-2xl text-white">
-          Não conseguimos confirmar seu plano
+          {pipelineFailed
+            ? 'Seu plano precisa de revisão'
+            : 'Não conseguimos confirmar seu plano'}
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          {deliveryFailed
+          {pipelineFailed
+            ? 'Nossa equipe precisa revisar o processamento antes de publicar dieta e treino.'
+            : deliveryFailed
             ? 'A entrega da anamnese precisa ser revisada antes da publicação.'
             : 'Nenhum plano foi simulado. Vamos consultar novamente a versão publicada.'}
         </p>
