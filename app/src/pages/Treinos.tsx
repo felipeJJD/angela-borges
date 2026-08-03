@@ -59,9 +59,9 @@ export function Treinos() {
   return (
     <div className="space-y-7 px-4 pt-6 safe-top">
       <header className="animate-fade-up">
-        <h1 className="text-display text-3xl text-white">Treinos</h1>
+        <h1 className="text-display text-3xl text-white">Biblioteca</h1>
         <p className="mt-1 text-sm text-muted">
-          Todas as fichas da comunidade, por nível.
+          {data.workouts.length} fichas da comunidade, organizadas por nível.
         </p>
       </header>
 

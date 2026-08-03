@@ -9,7 +9,7 @@ export type AuthSurface = 'student' | 'admin' | 'login'
 export type AuthViewDecision =
   | { kind: 'render' }
   | { kind: 'loading'; label: string }
-  | { kind: 'redirect'; to: '/login' | '/' | '/admin' }
+  | { kind: 'redirect'; to: '/login' | '/' | '/admin' | '/meu-plano' }
   | {
       kind: 'issue'
       issue: 'profile-missing' | 'profile-forbidden' | 'transient-error'
@@ -54,7 +54,7 @@ export function resolveAuthView<
   if (surface === 'login') {
     return {
       kind: 'redirect',
-      to: access.status === 'ready-admin' ? '/admin' : '/',
+      to: access.status === 'ready-admin' ? '/admin' : '/meu-plano',
     }
   }
 

@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
-import { IconHome, IconDumbbell, IconUser } from './icons'
+import { IconHome, IconDumbbell, IconFileText, IconUser } from './icons'
 
 const items = [
+  { to: '/meu-plano', label: 'Meu Plano', Icon: IconFileText, end: false },
   { to: '/', label: 'Início', Icon: IconHome, end: true },
-  { to: '/treinos', label: 'Treinos', Icon: IconDumbbell, end: false },
+  { to: '/treinos', label: 'Biblioteca', Icon: IconDumbbell, end: false },
   { to: '/perfil', label: 'Perfil', Icon: IconUser, end: false },
 ]
 

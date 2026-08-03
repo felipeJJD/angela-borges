@@ -36,7 +36,7 @@ describe('resolveAuthView', () => {
     })
     expect(resolveAuthView(student, 'login')).toEqual({
       kind: 'redirect',
-      to: '/',
+      to: '/meu-plano',
     })
     expect(resolveAuthView(admin, 'login')).toEqual({
       kind: 'redirect',

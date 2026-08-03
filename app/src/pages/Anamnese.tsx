@@ -552,8 +552,8 @@ function AnamneseJourney({
             Verificar entrega
           </Button>
         )}
-        <Button className="mt-6" onClick={() => navigate('/')}>
-          Voltar ao início
+        <Button className="mt-6" onClick={() => navigate('/meu-plano')}>
+          Ver meu plano
         </Button>
       </div>
     )

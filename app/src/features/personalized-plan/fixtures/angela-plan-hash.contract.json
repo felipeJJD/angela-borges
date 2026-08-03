@@ -1,0 +1,79 @@
+{
+  "snapshot": {
+    "training": {
+      "notes": "",
+      "duration_minutes": 30,
+      "goal": "Forca",
+      "days": [
+        {
+          "warmup": "5 min",
+          "type": "workout",
+          "name": "Treino A",
+          "muscle_groups": ["pernas"],
+          "exercises": [
+            {
+              "technique": null,
+              "substitutions": ["Agachamento livre"],
+              "sets": 3,
+              "rest_seconds": 60,
+              "reps": "12",
+              "order": 1,
+              "notes": null,
+              "name": "Agachamento",
+              "muscle_group": "pernas"
+            }
+          ],
+          "day_label": "Dia 1",
+          "cooldown": "Alongar"
+        }
+      ],
+      "split": "A",
+      "frequency": 1
+    },
+    "user_id": "22222222-2222-4222-8222-222222222222",
+    "schema_version": "angela-plan.v1",
+    "protocol_version": 3,
+    "protocol_id": "11111111-1111-4111-8111-111111111111",
+    "generation_metadata": {
+      "schemaVersion": "angela-protocol-draft.v1",
+      "ragVersion": "consultoria-open-rag-node.v1",
+      "promptVersion": "angela-consultoria-prompts.v1",
+      "engineVersion": "angela-consultoria-engine.v1",
+      "catalogVersion": "consultoria-open-catalog.2026-07-20"
+    },
+    "diet": {
+      "water_liters": 2.5,
+      "notes": "",
+      "meals": [
+        {
+          "time": "12:00",
+          "order": 1,
+          "name": "Almoco",
+          "foods": [
+            {
+              "unit": "g",
+              "substitutions": ["Batata"],
+              "quantity": 100,
+              "protein_g": 3,
+              "name": "Arroz",
+              "fat_g": 1,
+              "carbs_g": 28,
+              "calories": 130
+            }
+          ],
+          "calories": 500
+        }
+      ],
+      "macros": {
+        "protein_g": 120,
+        "fiber_g": 25,
+        "fat_g": 60,
+        "carbs_g": 180
+      },
+      "goal": "Saude",
+      "daily_calories": 1800
+    }
+  },
+  "canonical_json": "{\"diet\":{\"daily_calories\":1800,\"goal\":\"Saude\",\"macros\":{\"carbs_g\":180,\"fat_g\":60,\"fiber_g\":25,\"protein_g\":120},\"meals\":[{\"calories\":500,\"foods\":[{\"calories\":130,\"carbs_g\":28,\"fat_g\":1,\"name\":\"Arroz\",\"protein_g\":3,\"quantity\":100,\"substitutions\":[\"Batata\"],\"unit\":\"g\"}],\"name\":\"Almoco\",\"order\":1,\"time\":\"12:00\"}],\"notes\":\"\",\"water_liters\":2.5},\"generation_metadata\":{\"catalogVersion\":\"consultoria-open-catalog.2026-07-20\",\"engineVersion\":\"angela-consultoria-engine.v1\",\"promptVersion\":\"angela-consultoria-prompts.v1\",\"ragVersion\":\"consultoria-open-rag-node.v1\",\"schemaVersion\":\"angela-protocol-draft.v1\"},\"protocol_id\":\"11111111-1111-4111-8111-111111111111\",\"protocol_version\":3,\"schema_version\":\"angela-plan.v1\",\"training\":{\"days\":[{\"cooldown\":\"Alongar\",\"day_label\":\"Dia 1\",\"exercises\":[{\"muscle_group\":\"pernas\",\"name\":\"Agachamento\",\"notes\":null,\"order\":1,\"reps\":\"12\",\"rest_seconds\":60,\"sets\":3,\"substitutions\":[\"Agachamento livre\"],\"technique\":null}],\"muscle_groups\":[\"pernas\"],\"name\":\"Treino A\",\"type\":\"workout\",\"warmup\":\"5 min\"}],\"duration_minutes\":30,\"frequency\":1,\"goal\":\"Forca\",\"notes\":\"\",\"split\":\"A\"},\"user_id\":\"22222222-2222-4222-8222-222222222222\"}",
+  "sha256": "fa3af851c7b7929761867755f5850b89ec17e601f356b17caac1e0b7edbb2008"
+}

@@ -18,6 +18,9 @@ const TreinoViewer = lazy(() =>
 const Anamnese = lazy(() =>
   import('./pages/Anamnese').then((m) => ({ default: m.Anamnese })),
 )
+const MeuPlano = lazy(() =>
+  import('./pages/MeuPlanoPage').then((m) => ({ default: m.MeuPlanoPage })),
+)
 
 export default function App() {
   return (
@@ -35,6 +38,14 @@ export default function App() {
                 </RequireStudent>
               }
             >
+              <Route
+                path="/meu-plano"
+                element={
+                  <Suspense fallback={<FullScreenLoader label="Abrindo seu plano…" />}>
+                    <MeuPlano />
+                  </Suspense>
+                }
+              />
               <Route path="/" element={<Home />} />
               <Route path="/treinos" element={<Treinos />} />
               <Route
@@ -70,7 +81,7 @@ export default function App() {
               }
             />
 
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/meu-plano" replace />} />
           </Routes>
         </ToastProvider>
       </AuthProvider>
