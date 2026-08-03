@@ -4,21 +4,32 @@ import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { FullScreenLoader } from '../components/Spinner'
+import { AuthAccessIssue } from '../components/Guards'
+import { resolveAuthView } from '../lib/auth/access-view'
 
 export function Login() {
-  const { session, profile, loading, signIn } = useAuth()
+  const { access, signIn, signOut, retry } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (loading) return <FullScreenLoader />
-
-  if (session && profile) {
-    return <Navigate to={profile.role === 'admin' ? '/admin' : '/'} replace />
+  const decision = resolveAuthView(access, 'login')
+  if (decision.kind === 'loading') {
+    return <FullScreenLoader label={decision.label} />
   }
-  // session exists but profile still resolving handled by loading; if session w/o profile, wait
-  if (session && !profile) return <FullScreenLoader label="Entrando…" />
+  if (decision.kind === 'issue') {
+    return (
+      <AuthAccessIssue
+        issue={decision.issue}
+        onRetry={retry}
+        onSignOut={signOut}
+      />
+    )
+  }
+  if (decision.kind === 'redirect') {
+    return <Navigate to={decision.to} replace />
+  }
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
