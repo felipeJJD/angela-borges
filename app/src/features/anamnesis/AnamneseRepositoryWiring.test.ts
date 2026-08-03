@@ -25,6 +25,7 @@ vi.mock('./SupabaseAnamnesisDraftRepository', () => ({
     load = vi.fn(async () => null)
     save = vi.fn()
     submit = vi.fn()
+    getDeliveryStatus = vi.fn()
 
     constructor(userId: string, client: unknown) {
       mocks.repositoryConstructor(userId, client)
@@ -74,5 +75,18 @@ describe('Anamnese production repository wiring', () => {
     expect(browserSource).not.toMatch(
       /ANGELA_WEBHOOK_HMAC_SECRET|SUPABASE_SERVICE_ROLE_KEY|service[_-]?role/i,
     )
+  })
+
+  it('recovers submitted drafts by checking honest pending/delivered/failed delivery state', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src', 'pages', 'Anamnese.tsx'),
+      'utf8',
+    )
+    expect(source).toContain('getDeliveryStatus')
+    expect(source).toContain('accepted_pending')
+    expect(source).toContain('delivered')
+    expect(source).toContain('failed')
+    expect(source).toContain('Verificar entrega')
+    expect(source).not.toContain('Recebi suas respostas')
   })
 })

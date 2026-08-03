@@ -92,15 +92,18 @@ describe('AnamnesisDraftRepository contract', () => {
       0,
     )
 
-    const submitted = await repository.submit(saved, 1)
-    expect(submitted).toMatchObject({
+    const result = await repository.submit(saved, 1)
+    expect(result).toMatchObject({
+      delivery: { status: 'delivered', retryable: false },
+      draft: {
       revision: 2,
       status: 'submitted',
       submittedAt: '2026-08-03T15:02:00.000Z',
       idempotencyKey: saved.idempotencyKey,
+      },
     })
-    expect(await repository.submit(saved, 1)).toEqual(submitted)
-    expect(await repository.load()).toEqual(submitted)
+    expect(await repository.submit(saved, 1)).toEqual(result)
+    expect(await repository.load()).toEqual(result.draft)
   })
 
   it('refuses to submit an incomplete draft', async () => {

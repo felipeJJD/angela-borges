@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase'
 import {
   AngelaAnamnesisJourney,
   type AnamnesisAnswer,
+  type AnamnesisDeliveryStatus,
   type AnamnesisDraft,
   type AnamnesisDraftRepository,
   type AnamnesisSection,
@@ -29,6 +30,7 @@ type AnamneseProps = Readonly<{
 }>
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+type DeliveryViewState = AnamnesisDeliveryStatus | Readonly<{ status: 'checking' }>
 
 const sectionLabels: Record<AnamnesisSection, string> = {
   personal: 'Você',
@@ -152,13 +154,12 @@ function QuestionInput({ step, answer, issue, onChange }: QuestionProps) {
                   onChange(option.value)
                   return
                 }
-                onChange(
-                  AngelaAnamnesisJourney.toggleMultiAnswer(
-                    step.key as AnamnesisStepKey,
-                    selected,
-                    option.value,
-                  ),
+                const toggled = AngelaAnamnesisJourney.toggleMultiAnswer(
+                  step.key as AnamnesisStepKey,
+                  selected,
+                  option.value,
                 )
+                onChange(toggled.length === 0 ? undefined : toggled)
               }}
               className={`flex min-h-12 w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors ${
                 checked
@@ -303,6 +304,7 @@ function AnamneseJourney({
   )
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [deliveryState, setDeliveryState] = useState<DeliveryViewState | null>(null)
   const submitInFlight = useRef(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveGeneration = useRef(0)
@@ -321,8 +323,31 @@ function AnamneseJourney({
     let active = true
     repository
       .load()
-      .then((draft) => {
-        if (active && draft) dispatch({ type: 'hydrate', draft })
+      .then(async (draft) => {
+        if (!active) return
+        if (draft) dispatch({ type: 'hydrate', draft })
+        if (draft?.status === 'submitted') {
+          setDeliveryState({ status: 'checking' })
+          try {
+            const delivery = await repository.getDeliveryStatus(
+              draft.idempotencyKey,
+            )
+            if (!active) return
+            setDeliveryState(delivery)
+            if (delivery.status === 'accepted_pending' && delivery.retryable) {
+              const retried = await repository.submit(draft, draft.revision)
+              if (active) setDeliveryState(retried.delivery)
+            }
+          } catch {
+            if (active) {
+              setDeliveryState({
+                status: 'accepted_pending',
+                retryable: true,
+                attempts: 0,
+              })
+            }
+          }
+        }
         if (active) setLoadStatus('ready')
       })
       .catch(() => {
@@ -395,7 +420,8 @@ function AnamneseJourney({
         setSaveState('saved')
       }
       const submitted = await repository.submit(persisted, persisted.revision)
-      dispatch({ type: 'submit_succeeded', draft: submitted })
+      setDeliveryState(submitted.delivery)
+      dispatch({ type: 'submit_succeeded', draft: submitted.draft })
     } catch (error) {
       dispatch({
         type: 'submit_failed',
@@ -435,6 +461,36 @@ function AnamneseJourney({
     scheduleSave(next.draft)
   }
 
+  const refreshDelivery = async () => {
+    if (!repository || submitInFlight.current || state.draft.status !== 'submitted') {
+      return
+    }
+    submitInFlight.current = true
+    setDeliveryState({ status: 'checking' })
+    try {
+      const current = await repository.getDeliveryStatus(
+        state.draft.idempotencyKey,
+      )
+      if (current.status === 'accepted_pending' && current.retryable) {
+        const retried = await repository.submit(
+          state.draft,
+          state.draft.revision,
+        )
+        setDeliveryState(retried.delivery)
+      } else {
+        setDeliveryState(current)
+      }
+    } catch {
+      setDeliveryState({
+        status: 'accepted_pending',
+        retryable: true,
+        attempts: 0,
+      })
+    } finally {
+      submitInFlight.current = false
+    }
+  }
+
   if (loadStatus === 'loading') {
     return <FullScreenLoader label="Carregando seu rascunho…" />
   }
@@ -452,15 +508,50 @@ function AnamneseJourney({
   }
 
   if (state.phase === 'submitted') {
+    const delivered = deliveryState?.status === 'delivered'
+    const failed = deliveryState?.status === 'failed'
+    const checking = deliveryState === null || deliveryState.status === 'checking'
     return (
       <div className="flex min-h-[calc(100dvh-5.5rem)] flex-col items-center justify-center px-6 text-center">
-        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-300">
+        <span
+          className={`flex h-16 w-16 items-center justify-center rounded-full ${
+            delivered
+              ? 'bg-emerald-400/15 text-emerald-300'
+              : failed
+                ? 'bg-red-400/15 text-red-300'
+                : 'bg-amber-400/15 text-amber-200'
+          }`}
+        >
           <IconCheck className="h-9 w-9" />
         </span>
-        <h1 className="mt-5 text-display text-3xl text-white">Anamnese enviada</h1>
+        <h1 className="mt-5 text-display text-3xl text-white">
+          {delivered
+            ? 'Anamnese entregue'
+            : failed
+              ? 'Entrega precisa de suporte'
+              : checking
+                ? 'Confirmando entrega'
+                : 'Anamnese recebida'}
+        </h1>
         <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted">
-          Recebi suas respostas. Elas serão consideradas na próxima etapa do seu acompanhamento.
+          {delivered
+            ? 'A entrega ao painel da equipe foi confirmada.'
+            : failed
+              ? 'Suas respostas continuam seguras na sua conta, mas a entrega ao painel esgotou as tentativas automáticas.'
+              : checking
+                ? 'Suas respostas estão seguras na sua conta enquanto verificamos o painel da equipe.'
+                : 'Suas respostas estão seguras na sua conta. A entrega ao painel segue pendente e pode ser retomada.'}
         </p>
+        {!delivered && !failed && (
+          <Button
+            variant="outline"
+            className="mt-6"
+            disabled={checking}
+            onClick={() => void refreshDelivery()}
+          >
+            Verificar entrega
+          </Button>
+        )}
         <Button className="mt-6" onClick={() => navigate('/')}>
           Voltar ao início
         </Button>

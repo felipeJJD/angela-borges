@@ -42,6 +42,7 @@ describe('SerializedAnamnesisDraftSaver', () => {
       load: vi.fn(),
       save,
       submit: vi.fn(),
+      getDeliveryStatus: vi.fn(),
     }
     const saver = new SerializedAnamnesisDraftSaver(repository)
     const first = draft('1990-06-15', '2026-08-03T15:01:00.000Z')

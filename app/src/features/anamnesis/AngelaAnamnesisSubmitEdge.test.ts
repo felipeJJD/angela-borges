@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildCanonicalWebhookBody,
+  computeAnamnesisPayloadHash,
   createWebhookHeaders,
 } from '../../../../supabase/functions/angela-anamnesis-submit/core'
+import { ANGELA_ANAMNESIS_CATALOG } from './catalog'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const CORRELATION_ID = '22222222-2222-4222-8222-222222222222'
@@ -37,6 +39,25 @@ const answers = {
 }
 
 describe('Angela anamnesis submit Edge core', () => {
+  it('matches the Dashboard recursive canonical JSON payload-hash fixture', async () => {
+    await expect(
+      computeAnamnesisPayloadHash('angela-anamnesis.v1', { b: 2, a: 1 }),
+    ).resolves.toBe(
+      'f9da3d345bbe3840e5a5791d69bbef1f146fe41ebb1cc2e360215e23eead3ca0',
+    )
+  })
+
+  it('uses runtime-independent lexical ordering for nested objects and decimals', async () => {
+    await expect(
+      computeAnamnesisPayloadHash('angela-anamnesis.v1', {
+        z: [3.5, { a: 1, Z: 2 }],
+        a: 1.25,
+      }),
+    ).resolves.toBe(
+      '68f92b48da178b4e077eb6378f28d91d0d359533fede619f55f47cffe4763b8a',
+    )
+  })
+
   it('builds the exact versioned Dashboard body from 3 personal, 13 nutrition, and 9 training answers', () => {
     const body = buildCanonicalWebhookBody({
       userId: USER_ID,
@@ -52,6 +73,7 @@ describe('Angela anamnesis submit Edge core', () => {
 
     expect(body.value).toEqual({
       source: 'angela_app',
+      account_id: '6637f3b0-2e52-4b2d-86e7-6a35f3dd1613',
       quiz_type: 'completo',
       user_id: USER_ID,
       idempotency_key: CORRELATION_ID,
@@ -77,22 +99,94 @@ describe('Angela anamnesis submit Edge core', () => {
     expect(body.raw).toBe(JSON.stringify(body.value))
   })
 
-  it('signs the exact raw body and returns the timestamp, correlation, and user auth contract', async () => {
+  it('rejects semantically invalid complete answers before canonical delivery', () => {
+    const invalidAnswers = [
+      { ...answers, nutrition_goal: 'unknown_goal' },
+      { ...answers, birth_date: '2026-02-30' },
+      { ...answers, birth_date: '2027-01-01' },
+      { ...answers, height_cm: 165.5 },
+      { ...answers, injuries_or_limitations: 'x' },
+      {
+        ...answers,
+        dietary_restrictions: ['none', 'lactose_intolerance'],
+      },
+      {
+        ...answers,
+        preferred_exercises: ['strength', 'aerobic', 'functional'],
+      },
+      { ...answers, training_focus_areas: ['glutes', 'glutes'] },
+    ]
+
+    for (const candidate of invalidAnswers) {
+      expect(() =>
+        buildCanonicalWebhookBody({
+          userId: USER_ID,
+          idempotencyKey: CORRELATION_ID,
+          correlationId: CORRELATION_ID,
+          schemaVersion: 'angela-anamnesis.v1',
+          submittedAt: '2026-08-03T15:10:00.000Z',
+          payloadHash: 'a'.repeat(64),
+          fullName: 'Pessoa Sintética',
+          email: 'synthetic@example.invalid',
+          answers: candidate,
+        }),
+      ).toThrow('Invalid anamnesis answers')
+    }
+  })
+
+  it('accepts every catalog option at the Edge semantic boundary', () => {
+    for (const step of ANGELA_ANAMNESIS_CATALOG.steps) {
+      for (const option of step.options ?? []) {
+        const candidate = {
+          ...answers,
+          [step.key]: step.type === 'multi' ? [option.value] : option.value,
+        }
+        expect(() =>
+          buildCanonicalWebhookBody({
+            userId: USER_ID,
+            idempotencyKey: CORRELATION_ID,
+            correlationId: CORRELATION_ID,
+            schemaVersion: 'angela-anamnesis.v1',
+            submittedAt: '2026-08-03T15:10:00.000Z',
+            payloadHash: 'a'.repeat(64),
+            fullName: 'Pessoa Sintética',
+            email: 'synthetic@example.invalid',
+            answers: candidate,
+          }),
+        ).not.toThrow()
+      }
+    }
+  })
+
+  it('signs the exact raw body and returns the timestamp, correlation, and delivery auth contract', async () => {
+    const rawBody =
+      '{"quiz_responses":{"a":1,"b":2},"schema_version":"angela-anamnesis.v1"}'
     const headers = await createWebhookHeaders({
-      rawBody: 'The quick brown fox jumps over the lazy dog',
-      hmacSecret: 'key',
-      timestamp: '2026-08-03T15:10:01.000Z',
+      rawBody,
+      hmacSecret: 'synthetic-angela-hmac-secret',
+      timestamp: '1785574400',
       correlationId: CORRELATION_ID,
-      authorization: 'Bearer synthetic-user-jwt',
+      authorization: 'Bearer synthetic-delivery-jwt',
     })
 
     expect(headers).toEqual({
       'content-type': 'application/json',
       'x-webhook-signature':
-        'f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8',
-      'x-webhook-timestamp': '2026-08-03T15:10:01.000Z',
+        'e96c2a2d03ef8cea7890450454a5736228d5013fa126b236fd4a96b18eaab439',
+      'x-webhook-timestamp': '1785574400',
       'x-correlation-id': CORRELATION_ID,
-      authorization: 'Bearer synthetic-user-jwt',
+      authorization: 'Bearer synthetic-delivery-jwt',
     })
+
+    const tampered = await createWebhookHeaders({
+      rawBody,
+      hmacSecret: 'synthetic-angela-hmac-secret',
+      timestamp: '1785574401',
+      correlationId: CORRELATION_ID,
+      authorization: 'Bearer synthetic-delivery-jwt',
+    })
+    expect(tampered['x-webhook-signature']).not.toBe(
+      headers['x-webhook-signature'],
+    )
   })
 })

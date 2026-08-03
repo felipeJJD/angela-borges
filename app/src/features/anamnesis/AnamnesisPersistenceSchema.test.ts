@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { ANGELA_ANAMNESIS_CATALOG } from './catalog'
+
 const migrationPath = resolve(
   process.cwd(),
   '..',
@@ -38,6 +40,15 @@ const stableKeys = [
   'training_barrier',
   'training_focus_areas',
 ] as const
+
+function functionSql(sql: string, name: string): string {
+  const match = new RegExp(
+    `create or replace function public\\.${name}\\([\\s\\S]*?(?=create or replace function|create trigger|alter table)`,
+    'i',
+  ).exec(sql)
+  if (!match) throw new Error(`Missing SQL function ${name}`)
+  return match[0].toLowerCase()
+}
 
 describe('0005 anamnesis persistence migration', () => {
   it('is additive, user-scoped, CAS-locked, immutable, and keeps outbox payloads server-only', () => {
@@ -78,5 +89,81 @@ describe('0005 anamnesis persistence migration', () => {
     expect(normalized).toContain('to authenticated')
 
     expect(normalized).not.toMatch(/\b(delete from|truncate|drop table)\b/)
+  })
+
+  it('submits only through a service-role atomic snapshot equality RPC', () => {
+    const sql = readFileSync(migrationPath, 'utf8')
+    const normalized = sql.toLowerCase()
+    const submit = functionSql(sql, 'submit_anamnesis_draft')
+
+    expect(submit).toContain('p_user_id uuid')
+    expect(submit).toContain('p_expected_answers jsonb')
+    expect(submit).toContain('p_payload_hash text')
+    expect(submit).toContain('for update')
+    expect(submit).toMatch(/v_draft\.revision\s*<>\s*p_expected_revision/)
+    expect(submit).toMatch(
+      /v_draft\.answers\s+is\s+distinct\s+from\s+p_expected_answers/,
+    )
+    expect(submit).not.toMatch(/jsonb_build_object\([\s\S]*\)::text/)
+
+    expect(normalized).toMatch(
+      /grant execute on function public\.submit_anamnesis_draft\([^)]+\)\s+to service_role/,
+    )
+    expect(normalized).not.toMatch(
+      /grant execute on function public\.submit_anamnesis_draft\([^)]+\)\s+to authenticated/,
+    )
+  })
+
+  it('rejects semantically invalid complete answers before creating an outbox row', () => {
+    const sql = readFileSync(migrationPath, 'utf8')
+    const validation = functionSql(sql, 'is_valid_angela_anamnesis_answers')
+    const multi = functionSql(sql, 'is_valid_angela_anamnesis_multi_answer')
+
+    expect(validation).toContain('current_date')
+    expect(validation).toContain("'general_health'")
+    expect(validation).toContain("'1_75_to_2l'")
+    expect(validation).toContain("'diverse_experience'")
+    expect(validation).toContain('trim(')
+    expect(validation).toContain('is_valid_angela_anamnesis_multi_answer')
+    expect(validation).toContain("'none'")
+    expect(validation).toContain('p_max_selections')
+    expect(multi).toContain('jsonb_array_length')
+    expect(multi).toContain('p_exclusive_option')
+    expect(multi).toContain('count(distinct')
+    for (const step of ANGELA_ANAMNESIS_CATALOG.steps) {
+      for (const option of step.options ?? []) {
+        expect(sql).toContain(`'${option.value}'`)
+      }
+    }
+  })
+
+  it('exposes own-user delivery status and a service-only leased due-row drainer', () => {
+    const sql = readFileSync(migrationPath, 'utf8')
+    const normalized = sql.toLowerCase()
+    const status = functionSql(sql, 'get_anamnesis_delivery_status')
+    const claimDue = functionSql(sql, 'claim_due_dashboard_outbox')
+
+    expect(status).toContain('auth.uid()')
+    expect(status).toContain('accepted_pending')
+    expect(status).toContain('delivered')
+    expect(status).toContain('failed')
+    expect(status).toContain(
+      "outbox.status in ('pending', 'retry_wait', 'processing')",
+    )
+    expect(status).not.toContain('payload jsonb')
+    expect(claimDue).toContain('for update skip locked')
+    expect(claimDue).toContain('least(greatest(p_limit, 1), 25)')
+    expect(claimDue).toContain('p_limit is null')
+    expect(claimDue).toContain('p_lease_seconds is null')
+    expect(claimDue).toContain("status in ('pending', 'retry_wait', 'processing')")
+    expect(normalized).toMatch(
+      /grant execute on function public\.claim_due_dashboard_outbox\([^)]+\)\s+to service_role/,
+    )
+    expect(normalized).not.toMatch(
+      /grant execute on function public\.claim_due_dashboard_outbox\([^)]+\)\s+to authenticated/,
+    )
+    expect(normalized).not.toMatch(
+      /\b(access_token|refresh_token|authorization|delivery_jwt_secret)\b/,
+    )
   })
 })

@@ -1,6 +1,17 @@
 import type { AnamnesisDraft } from './draft'
 import type { AnamnesisValidationIssue } from './validation'
 
+export type AnamnesisDeliveryStatus = Readonly<{
+  status: 'accepted_pending' | 'delivered' | 'failed'
+  retryable: boolean
+  attempts: number
+}>
+
+export type AnamnesisSubmissionResult = Readonly<{
+  draft: AnamnesisDraft
+  delivery: AnamnesisDeliveryStatus
+}>
+
 /**
  * Persistence seam for one already-authenticated user.
  *
@@ -11,7 +22,11 @@ import type { AnamnesisValidationIssue } from './validation'
 export interface AnamnesisDraftRepository {
   load(): Promise<AnamnesisDraft | null>
   save(draft: AnamnesisDraft, expectedRevision: number): Promise<AnamnesisDraft>
-  submit(draft: AnamnesisDraft, expectedRevision: number): Promise<AnamnesisDraft>
+  submit(
+    draft: AnamnesisDraft,
+    expectedRevision: number,
+  ): Promise<AnamnesisSubmissionResult>
+  getDeliveryStatus(idempotencyKey: string): Promise<AnamnesisDeliveryStatus>
 }
 
 export class AnamnesisDraftRevisionConflictError extends Error {

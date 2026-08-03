@@ -215,7 +215,7 @@ describe('SupabaseAnamnesisDraftRepository', () => {
     const invoke = vi.fn(async () => ({
       data: {
         draft: submittedRow,
-        delivery: { status: 'delivered', attempts: 1 },
+        delivery: { status: 'delivered', retryable: false, attempts: 1 },
       },
       error: null,
     }))
@@ -231,12 +231,16 @@ describe('SupabaseAnamnesisDraftRepository', () => {
     const complete = { ...draft(1), answers: completeAnswers }
 
     await expect(repository.submit(complete, 1)).resolves.toMatchObject({
-      status: 'submitted',
-      revision: 2,
-      idempotencyKey: DRAFT_ID,
+      draft: {
+        status: 'submitted',
+        revision: 2,
+        idempotencyKey: DRAFT_ID,
+      },
+      delivery: { status: 'delivered', retryable: false, attempts: 1 },
     })
     expect(invoke).toHaveBeenCalledWith('angela-anamnesis-submit', {
       body: {
+        action: 'submit',
         draft_id: DRAFT_ID,
         schema_version: 'angela-anamnesis.v1',
         expected_revision: 1,
@@ -244,5 +248,46 @@ describe('SupabaseAnamnesisDraftRepository', () => {
       },
     })
     expect(JSON.stringify(invoke.mock.calls)).not.toContain('birth_date')
+  })
+
+  it('checks delivery status on reload without sending answers or trusting malformed state', async () => {
+    const invoke = vi.fn(async () => ({
+      data: {
+        delivery: {
+          status: 'accepted_pending',
+          retryable: true,
+          attempts: 2,
+        },
+      },
+      error: null,
+    }))
+    const repository = new SupabaseAnamnesisDraftRepository(
+      USER_ID,
+      {
+        from: vi.fn(),
+        rpc: vi.fn(),
+        functions: { invoke },
+      } as never,
+    )
+
+    await expect(repository.getDeliveryStatus(DRAFT_ID)).resolves.toEqual({
+      status: 'accepted_pending',
+      retryable: true,
+      attempts: 2,
+    })
+    expect(invoke).toHaveBeenCalledWith('angela-anamnesis-submit', {
+      body: { action: 'status', idempotency_key: DRAFT_ID },
+    })
+    expect(JSON.stringify(invoke.mock.calls)).not.toContain('birth_date')
+
+    invoke.mockResolvedValueOnce({
+      data: {
+        delivery: { status: 'legacy_success', retryable: false, attempts: 0 },
+      },
+      error: null,
+    })
+    await expect(repository.getDeliveryStatus(DRAFT_ID)).rejects.toThrow(
+      'Invalid anamnesis delivery status',
+    )
   })
 })

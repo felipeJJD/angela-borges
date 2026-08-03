@@ -1,0 +1,5 @@
+# Authentication is enforced inside the staged handler for both surfaces:
+# caller JWT validation for submit/status and a constant-time server-only
+# drain-token check for the scheduled outbox entrypoint.
+[functions.angela-anamnesis-submit]
+verify_jwt = false

@@ -4,7 +4,9 @@ import {
   AnamnesisDraftRevisionConflictError,
   AnamnesisDraftScopeError,
   AnamnesisDraftValidationError,
+  type AnamnesisDeliveryStatus,
   type AnamnesisDraftRepository,
+  type AnamnesisSubmissionResult,
 } from '../repository'
 import { validateAnamnesisDraft } from '../validation'
 
@@ -65,7 +67,7 @@ export class InMemoryAnamnesisDraftRepository
   async submit(
     draft: AnamnesisDraft,
     expectedRevision: number,
-  ): Promise<AnamnesisDraft> {
+  ): Promise<AnamnesisSubmissionResult> {
     this.assertScopeAndSchema(draft)
 
     if (
@@ -73,7 +75,10 @@ export class InMemoryAnamnesisDraftRepository
       this.stored.id === draft.id &&
       this.stored.idempotencyKey === draft.idempotencyKey
     ) {
-      return cloneDraft(this.stored)
+      return {
+        draft: cloneDraft(this.stored),
+        delivery: { status: 'delivered', retryable: false, attempts: 1 },
+      }
     }
 
     this.assertRevision(draft, expectedRevision)
@@ -89,7 +94,17 @@ export class InMemoryAnamnesisDraftRepository
       submittedAt,
     }
     this.stored = submitted
-    return cloneDraft(submitted)
+    return {
+      draft: cloneDraft(submitted),
+      delivery: { status: 'delivered', retryable: false, attempts: 1 },
+    }
+  }
+
+  async getDeliveryStatus(idempotencyKey: string): Promise<AnamnesisDeliveryStatus> {
+    if (!this.stored || this.stored.idempotencyKey !== idempotencyKey) {
+      throw new Error('No submitted anamnesis exists for this identity.')
+    }
+    return { status: 'delivered', retryable: false, attempts: 1 }
   }
 
   private assertScopeAndSchema(draft: AnamnesisDraft): void {

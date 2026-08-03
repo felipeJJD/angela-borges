@@ -102,13 +102,71 @@ as $$
   ]::text[];
 $$;
 
+create or replace function public.is_valid_angela_anamnesis_multi_answer(
+  p_answers jsonb,
+  p_key text,
+  p_allowed text[],
+  p_max_selections integer default null,
+  p_exclusive_option text default null
+)
+returns boolean
+language plpgsql
+immutable
+set search_path = pg_catalog, public
+as $$
+declare
+  v_count integer;
+  v_distinct_count integer;
+begin
+  if not (p_answers ? p_key) then
+    return true;
+  end if;
+  if jsonb_typeof(p_answers -> p_key) is distinct from 'array' then
+    return false;
+  end if;
+
+  v_count := jsonb_array_length(p_answers -> p_key);
+  if v_count = 0 or (p_max_selections is not null and v_count > p_max_selections) then
+    return false;
+  end if;
+  if exists (
+    select 1
+      from jsonb_array_elements(p_answers -> p_key) as item(value)
+     where jsonb_typeof(item.value) is distinct from 'string'
+  ) then
+    return false;
+  end if;
+  if exists (
+    select 1
+      from jsonb_array_elements_text(p_answers -> p_key) as item(value)
+     where not (item.value = any(p_allowed))
+  ) then
+    return false;
+  end if;
+
+  select count(distinct item.value)
+    into v_distinct_count
+    from jsonb_array_elements_text(p_answers -> p_key) as item(value);
+  if v_distinct_count <> v_count then
+    return false;
+  end if;
+  if p_exclusive_option is not null
+     and (p_answers -> p_key) ? p_exclusive_option
+     and v_count > 1 then
+    return false;
+  end if;
+
+  return true;
+end;
+$$;
+
 create or replace function public.is_valid_angela_anamnesis_answers(
   p_answers jsonb,
   p_require_complete boolean
 )
 returns boolean
 language plpgsql
-immutable
+stable
 set search_path = pg_catalog, public
 as $$
 declare
@@ -140,12 +198,24 @@ begin
     return false;
   end if;
 
-  if p_answers ? 'birth_date'
-     and jsonb_typeof(p_answers -> 'birth_date') is distinct from 'string' then
-    return false;
+  if p_answers ? 'birth_date' then
+    if jsonb_typeof(p_answers -> 'birth_date') is distinct from 'string'
+       or (p_answers ->> 'birth_date') !~ '^\d{4}-\d{2}-\d{2}$' then
+      return false;
+    end if;
+    begin
+      if to_char(to_date(p_answers ->> 'birth_date', 'YYYY-MM-DD'), 'YYYY-MM-DD')
+           <> (p_answers ->> 'birth_date')
+         or to_date(p_answers ->> 'birth_date', 'YYYY-MM-DD') > current_date then
+        return false;
+      end if;
+    exception when others then
+      return false;
+    end;
   end if;
   if p_answers ? 'height_cm' then
     if jsonb_typeof(p_answers -> 'height_cm') is distinct from 'number'
+       or (p_answers ->> 'height_cm')::numeric <> trunc((p_answers ->> 'height_cm')::numeric)
        or (p_answers ->> 'height_cm')::numeric not between 120 and 220 then
       return false;
     end if;
@@ -157,31 +227,38 @@ begin
     end if;
   end if;
 
-  if exists (
-    select 1
-      from unnest(array[
-        'nutrition_goal', 'nutrition_challenge', 'sleep_quality',
-        'water_intake', 'emotional_eating', 'meal_preparation', 'food_budget',
-        'training_experience_level', 'training_days_per_week',
-        'training_location', 'injuries_or_limitations', 'conditioning_level',
-        'training_background', 'training_barrier'
-      ]) as scalar_keys(scalar_key)
-     where p_answers ? scalar_key
-       and jsonb_typeof(p_answers -> scalar_key) is distinct from 'string'
-  ) then
+  if p_answers ? 'injuries_or_limitations'
+     and (
+       jsonb_typeof(p_answers -> 'injuries_or_limitations') is distinct from 'string'
+       or length(trim(p_answers ->> 'injuries_or_limitations')) not between 2 and 500
+     ) then
     return false;
   end if;
 
-  if exists (
-    select 1
-      from unnest(array[
-        'meal_routine', 'dietary_restrictions', 'health_history',
-        'planned_supplements', 'sweet_craving_times', 'disliked_foods',
-        'preferred_exercises', 'training_focus_areas'
-      ]) as multi_keys(multi_key)
-     where p_answers ? multi_key
-       and jsonb_typeof(p_answers -> multi_key) is distinct from 'array'
-  ) then
+  if (p_answers ? 'nutrition_goal' and not (p_answers ->> 'nutrition_goal' = any(array['weight_loss', 'muscle_gain', 'general_health']::text[])))
+     or (p_answers ? 'nutrition_challenge' and not (p_answers ->> 'nutrition_challenge' = any(array['sweets', 'anxiety_compulsion', 'alcohol', 'overeating', 'meal_planning']::text[])))
+     or (p_answers ? 'sleep_quality' and not (p_answers ->> 'sleep_quality' = any(array['excellent', 'good', 'fair', 'poor']::text[])))
+     or (p_answers ? 'water_intake' and not (p_answers ->> 'water_intake' = any(array['under_1l', '1_to_1_5l', '1_75_to_2l', 'over_2l']::text[])))
+     or (p_answers ? 'emotional_eating' and not (p_answers ->> 'emotional_eating' = any(array['never', 'rarely', 'often', 'always']::text[])))
+     or (p_answers ? 'meal_preparation' and not (p_answers ->> 'meal_preparation' = any(array['self', 'family', 'eats_out', 'delivery', 'household_help']::text[])))
+     or (p_answers ? 'food_budget' and not (p_answers ->> 'food_budget' = any(array['up_to_200', '200_to_400', '400_to_600', 'over_600']::text[])))
+     or (p_answers ? 'training_experience_level' and not (p_answers ->> 'training_experience_level' = any(array['beginner', 'basic', 'intermediate', 'experienced']::text[])))
+     or (p_answers ? 'training_days_per_week' and not (p_answers ->> 'training_days_per_week' = any(array['1_2_days', '3_4_days', '5_6_days', 'every_day']::text[])))
+     or (p_answers ? 'training_location' and not (p_answers ->> 'training_location' = any(array['gym', 'home_equipment', 'outdoors', 'mixed']::text[])))
+     or (p_answers ? 'conditioning_level' and not (p_answers ->> 'conditioning_level' = any(array['very_low', 'low', 'medium', 'good']::text[])))
+     or (p_answers ? 'training_background' and not (p_answers ->> 'training_background' = any(array['never_consistent', 'school_sports', 'gym_months', 'diverse_experience']::text[])))
+     or (p_answers ? 'training_barrier' and not (p_answers ->> 'training_barrier' = any(array['time', 'motivation', 'knowledge', 'fatigue']::text[]))) then
+    return false;
+  end if;
+
+  if not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'meal_routine', array['breakfast', 'morning_snack', 'lunch', 'afternoon_snack', 'dinner', 'supper', 'late_night_snack']::text[])
+     or not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'dietary_restrictions', array['none', 'lactose_intolerance', 'gluten_intolerance', 'other_allergies']::text[], p_exclusive_option => 'none')
+     or not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'health_history', array['diabetes', 'hypertension', 'high_cholesterol', 'none']::text[], p_exclusive_option => 'none')
+     or not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'planned_supplements', array['none', 'whey_protein', 'creatine', 'pre_workout', 'omega_3', 'multivitamin']::text[], p_exclusive_option => 'none')
+     or not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'sweet_craving_times', array['none', 'breakfast', 'morning_snack', 'lunch', 'afternoon_snack', 'dinner', 'supper']::text[], p_exclusive_option => 'none')
+     or not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'disliked_foods', array['none', 'kale', 'eggplant', 'cucumber', 'tomato', 'onion', 'garlic', 'pepper', 'carrot', 'broccoli', 'zucchini', 'mushrooms', 'peanuts', 'fish', 'shrimp', 'octopus', 'squid', 'egg', 'cheese', 'milk', 'yogurt', 'whole_grain_bread']::text[], p_exclusive_option => 'none')
+     or not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'preferred_exercises', array['strength', 'aerobic', 'functional', 'varied']::text[], p_max_selections => 2)
+     or not public.is_valid_angela_anamnesis_multi_answer(p_answers, 'training_focus_areas', array['glutes', 'legs', 'arms', 'back', 'shoulders', 'chest']::text[], p_max_selections => 2) then
     return false;
   end if;
 
@@ -278,10 +355,13 @@ end;
 $$;
 
 create or replace function public.submit_anamnesis_draft(
+  p_user_id uuid,
   p_draft_id uuid,
   p_schema_version text,
   p_expected_revision bigint,
-  p_idempotency_key uuid
+  p_expected_answers jsonb,
+  p_idempotency_key uuid,
+  p_payload_hash text
 )
 returns table (
   id uuid,
@@ -303,14 +383,12 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
-  v_user_id uuid := auth.uid();
   v_draft public.anamnesis_drafts%rowtype;
   v_submission public.anamnesis_submissions%rowtype;
   v_now timestamptz;
-  v_hash text;
 begin
-  if v_user_id is null then
-    raise exception using errcode = '42501', message = 'ANAMNESIS_AUTH_REQUIRED';
+  if p_user_id is null then
+    raise exception using errcode = '22023', message = 'ANAMNESIS_USER_REQUIRED';
   end if;
   if p_schema_version is distinct from 'angela-anamnesis.v1' then
     raise exception using errcode = '22023', message = 'ANAMNESIS_SCHEMA_MISMATCH';
@@ -321,26 +399,47 @@ begin
   if p_expected_revision is null or p_expected_revision < 0 then
     raise exception using errcode = '22023', message = 'ANAMNESIS_INVALID_REVISION';
   end if;
+  if not public.is_valid_angela_anamnesis_answers(p_expected_answers, true) then
+    raise exception using errcode = '22023', message = 'ANAMNESIS_INCOMPLETE';
+  end if;
+  if p_payload_hash is null or p_payload_hash !~ '^[0-9a-f]{64}$' then
+    raise exception using errcode = '22023', message = 'ANAMNESIS_INVALID_PAYLOAD_HASH';
+  end if;
 
-  perform 1 from public.profiles where public.profiles.id = v_user_id for update;
+  perform 1 from public.profiles where public.profiles.id = p_user_id for update;
   if not found then
     raise exception using errcode = '42501', message = 'ANAMNESIS_PROFILE_REQUIRED';
   end if;
 
-  -- Duplicate delivery replays the one immutable logical submission, even
-  -- when the caller still holds the pre-submit expected revision.
+  -- Replays are accepted only for the same immutable logical snapshot.
   select * into v_submission
     from public.anamnesis_submissions
    where public.anamnesis_submissions.idempotency_key = p_idempotency_key
    for share;
   if found then
-    if v_submission.user_id <> v_user_id or v_submission.draft_id <> p_draft_id then
+    if v_submission.user_id <> p_user_id
+       or v_submission.draft_id <> p_draft_id
+       or v_submission.schema_version <> p_schema_version
+       or v_submission.idempotency_key <> p_idempotency_key
+       or v_submission.correlation_id <> p_idempotency_key then
       raise exception using errcode = '42501', message = 'ANAMNESIS_SCOPE_MISMATCH';
+    end if;
+    if v_submission.answers is distinct from p_expected_answers
+       or v_submission.payload_hash <> p_payload_hash then
+      raise exception using errcode = '22023', message = 'ANAMNESIS_REPLAY_MISMATCH';
     end if;
     select * into v_draft
       from public.anamnesis_drafts
      where public.anamnesis_drafts.id = p_draft_id
-       and public.anamnesis_drafts.user_id = v_user_id;
+       and public.anamnesis_drafts.user_id = p_user_id
+     for update;
+    if not found
+       or v_draft.schema_version <> p_schema_version
+       or v_draft.revision <> p_expected_revision
+       or v_draft.answers is distinct from p_expected_answers
+       or v_draft.status <> 'submitted' then
+      raise exception using errcode = '22023', message = 'ANAMNESIS_REPLAY_MISMATCH';
+    end if;
     return query select
       v_draft.id, v_draft.user_id, v_draft.schema_version, v_draft.revision,
       v_draft.status, v_draft.answers, v_draft.created_at, v_draft.updated_at,
@@ -352,7 +451,7 @@ begin
   select * into v_draft
     from public.anamnesis_drafts
    where public.anamnesis_drafts.id = p_draft_id
-     and public.anamnesis_drafts.user_id = v_user_id
+     and public.anamnesis_drafts.user_id = p_user_id
      and public.anamnesis_drafts.schema_version = 'angela-anamnesis.v1'
    for update;
   if not found then
@@ -367,24 +466,11 @@ begin
       message = 'ANAMNESIS_REVISION_CONFLICT',
       detail = format('actual_revision=%s', v_draft.revision);
   end if;
-  if not public.is_valid_angela_anamnesis_answers(v_draft.answers, true) then
-    raise exception using errcode = '22023', message = 'ANAMNESIS_INCOMPLETE';
+  if v_draft.answers is distinct from p_expected_answers then
+    raise exception using errcode = '40001', message = 'ANAMNESIS_ANSWERS_CONFLICT';
   end if;
 
   v_now := statement_timestamp();
-  v_hash := encode(
-    digest(
-      convert_to(
-        jsonb_build_object(
-          'schema_version', v_draft.schema_version,
-          'answers', v_draft.answers
-        )::text,
-        'UTF8'
-      ),
-      'sha256'
-    ),
-    'hex'
-  );
 
   update public.anamnesis_drafts
      set revision = v_draft.revision + 1,
@@ -400,7 +486,7 @@ begin
   ) values (
     v_draft.id, v_draft.id, v_draft.user_id, v_draft.schema_version,
     v_draft.revision, v_draft.answers, v_draft.idempotency_key,
-    v_draft.id, v_hash, v_now
+    v_draft.id, p_payload_hash, v_now
   )
   returning * into v_submission;
 
@@ -420,7 +506,7 @@ begin
       'correlation_id', v_submission.correlation_id,
       'payload_hash', v_submission.payload_hash
     ),
-    v_submission.payload_hash
+    p_payload_hash
   );
 
   return query select
@@ -428,6 +514,100 @@ begin
     v_draft.status, v_draft.answers, v_draft.created_at, v_draft.updated_at,
     v_draft.submitted_at, v_draft.idempotency_key,
     v_submission.correlation_id, v_submission.payload_hash, false;
+end;
+$$;
+
+create or replace function public.get_anamnesis_delivery_status(
+  p_idempotency_key uuid
+)
+returns table (
+  status text,
+  retryable boolean,
+  attempts smallint,
+  next_attempt_at timestamptz,
+  delivered_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'ANAMNESIS_AUTH_REQUIRED';
+  end if;
+  return query
+  select case
+           when outbox.status = 'delivered' then 'delivered'
+           when outbox.status = 'dead_letter' then 'failed'
+           else 'accepted_pending'
+         end,
+         outbox.status in ('pending', 'retry_wait', 'processing'),
+         outbox.attempts,
+         outbox.next_attempt_at,
+         outbox.delivered_at
+    from public.dashboard_outbox as outbox
+   where outbox.idempotency_key = p_idempotency_key
+     and outbox.user_id = v_user_id;
+end;
+$$;
+
+create or replace function public.claim_due_dashboard_outbox(
+  p_limit integer default 10,
+  p_lease_seconds integer default 20
+)
+returns setof public.dashboard_outbox
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if p_limit is null or p_lease_seconds is null then
+    raise exception using errcode = '22023', message = 'OUTBOX_INVALID_CLAIM_BOUNDS';
+  end if;
+
+  update public.dashboard_outbox
+     set status = 'dead_letter',
+         locked_until = null,
+         updated_at = statement_timestamp(),
+         last_error_code = coalesce(last_error_code, 'attempts_exhausted')
+   where status in ('pending', 'retry_wait', 'processing')
+     and attempts >= 5
+     and (
+       status <> 'processing'
+       or locked_until is null
+       or locked_until <= statement_timestamp()
+     );
+
+  return query
+  with due as (
+    select outbox.id
+      from public.dashboard_outbox as outbox
+     where outbox.status in ('pending', 'retry_wait', 'processing')
+       and outbox.attempts < 5
+       and outbox.next_attempt_at <= statement_timestamp()
+       and (
+         outbox.status <> 'processing'
+         or outbox.locked_until is null
+         or outbox.locked_until <= statement_timestamp()
+       )
+     order by outbox.next_attempt_at, outbox.created_at, outbox.id
+     for update skip locked
+     limit least(greatest(p_limit, 1), 25)
+  ), claimed as (
+    update public.dashboard_outbox as outbox
+       set status = 'processing',
+           attempts = outbox.attempts + 1,
+           locked_until = statement_timestamp()
+             + make_interval(secs => least(greatest(p_lease_seconds, 5), 30)),
+           updated_at = statement_timestamp(),
+           last_error_code = null
+      from due
+     where outbox.id = due.id
+    returning outbox.*
+  )
+  select * from claimed;
 end;
 $$;
 
@@ -443,6 +623,10 @@ as $$
 declare
   v_item public.dashboard_outbox%rowtype;
 begin
+  if p_correlation_id is null or p_lease_seconds is null then
+    raise exception using errcode = '22023', message = 'OUTBOX_INVALID_CLAIM';
+  end if;
+
   select * into v_item
     from public.dashboard_outbox
    where correlation_id = p_correlation_id
@@ -489,6 +673,10 @@ security definer
 set search_path = pg_catalog, public
 as $$
 begin
+  if p_correlation_id is null or p_expected_attempt is null then
+    raise exception using errcode = '22023', message = 'OUTBOX_INVALID_DELIVERY_MARK';
+  end if;
+
   update public.dashboard_outbox
      set status = 'delivered', delivered_at = statement_timestamp(),
          locked_until = null, next_attempt_at = statement_timestamp(),
@@ -514,6 +702,11 @@ as $$
 declare
   v_status text;
 begin
+  if p_correlation_id is null
+     or p_expected_attempt is null
+     or p_retry_after_seconds is null then
+    raise exception using errcode = '22023', message = 'OUTBOX_INVALID_RETRY_MARK';
+  end if;
   if p_error_code !~ '^[a-z0-9_]{1,64}$' then
     raise exception using errcode = '22023', message = 'OUTBOX_INVALID_ERROR_CODE';
   end if;
@@ -575,11 +768,17 @@ grant select on public.dashboard_outbox to service_role;
 
 revoke all on function public.angela_anamnesis_v1_keys()
   from public, anon, authenticated, service_role;
+revoke all on function public.is_valid_angela_anamnesis_multi_answer(jsonb, text, text[], integer, text)
+  from public, anon, authenticated, service_role;
 revoke all on function public.is_valid_angela_anamnesis_answers(jsonb, boolean)
   from public, anon, authenticated, service_role;
 revoke all on function public.save_anamnesis_draft(uuid, text, bigint, jsonb, uuid)
   from public, anon, authenticated, service_role;
-revoke all on function public.submit_anamnesis_draft(uuid, text, bigint, uuid)
+revoke all on function public.submit_anamnesis_draft(uuid, uuid, text, bigint, jsonb, uuid, text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.get_anamnesis_delivery_status(uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.claim_due_dashboard_outbox(integer, integer)
   from public, anon, authenticated, service_role;
 revoke all on function public.claim_dashboard_outbox(uuid, integer)
   from public, anon, authenticated, service_role;
@@ -592,8 +791,12 @@ revoke all on function public.prevent_anamnesis_submission_mutation()
 
 grant execute on function public.save_anamnesis_draft(uuid, text, bigint, jsonb, uuid)
   to authenticated;
-grant execute on function public.submit_anamnesis_draft(uuid, text, bigint, uuid)
+grant execute on function public.submit_anamnesis_draft(uuid, uuid, text, bigint, jsonb, uuid, text)
+  to service_role;
+grant execute on function public.get_anamnesis_delivery_status(uuid)
   to authenticated;
+grant execute on function public.claim_due_dashboard_outbox(integer, integer)
+  to service_role;
 grant execute on function public.claim_dashboard_outbox(uuid, integer)
   to service_role;
 grant execute on function public.mark_dashboard_outbox_delivered(uuid, smallint)

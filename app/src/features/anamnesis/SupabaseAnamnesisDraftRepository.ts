@@ -10,7 +10,9 @@ import {
   AnamnesisDraftRevisionConflictError,
   AnamnesisDraftScopeError,
   AnamnesisDraftValidationError,
+  type AnamnesisDeliveryStatus,
   type AnamnesisDraftRepository,
+  type AnamnesisSubmissionResult,
 } from './repository'
 import { validateAnamnesisAnswer, validateAnamnesisDraft } from './validation'
 
@@ -119,6 +121,24 @@ function singleRpcRow(data: unknown): unknown {
   return data
 }
 
+function mapDelivery(value: unknown): AnamnesisDeliveryStatus {
+  if (!isRecord(value)) invalidRow('Invalid anamnesis delivery status')
+  const status = value.status
+  const retryable = value.retryable
+  const attempts = value.attempts
+  if (
+    (status !== 'accepted_pending' && status !== 'delivered' && status !== 'failed') ||
+    typeof retryable !== 'boolean' ||
+    !Number.isSafeInteger(attempts) ||
+    (attempts as number) < 0 ||
+    (status === 'accepted_pending' && retryable !== true) ||
+    (status !== 'accepted_pending' && retryable !== false)
+  ) {
+    throw new Error('Invalid anamnesis delivery status')
+  }
+  return { status, retryable, attempts: attempts as number }
+}
+
 function mutationError(error: { code?: string; details?: string }, expectedRevision: number): Error {
   if (error.code === '40001') {
     const actual = /actual_revision=(\d+)/.exec(error.details ?? '')?.[1]
@@ -176,7 +196,7 @@ export class SupabaseAnamnesisDraftRepository
   async submit(
     draft: AnamnesisDraft,
     expectedRevision: number,
-  ): Promise<AnamnesisDraft> {
+  ): Promise<AnamnesisSubmissionResult> {
     this.assertMutation(draft, expectedRevision)
     const validation = validateAnamnesisDraft(draft)
     if (!validation.valid) throw new AnamnesisDraftValidationError(validation.issues)
@@ -185,6 +205,7 @@ export class SupabaseAnamnesisDraftRepository
       'angela-anamnesis-submit',
       {
         body: {
+          action: 'submit',
           draft_id: draft.id,
           schema_version: draft.schemaVersion,
           expected_revision: expectedRevision,
@@ -196,10 +217,25 @@ export class SupabaseAnamnesisDraftRepository
     if (error) {
       throw new Error('O envio não foi confirmado. Tente novamente com a mesma anamnese.')
     }
-    if (!isRecord(data) || !('draft' in data)) {
-      invalidRow('Edge Function response must contain a draft')
+    if (!isRecord(data) || !('draft' in data) || !('delivery' in data)) {
+      invalidRow('Edge Function response must contain a draft and delivery status')
     }
-    return mapDraftRow(data.draft, this.boundUserId)
+    return {
+      draft: mapDraftRow(data.draft, this.boundUserId),
+      delivery: mapDelivery(data.delivery),
+    }
+  }
+
+  async getDeliveryStatus(idempotencyKey: string): Promise<AnamnesisDeliveryStatus> {
+    if (!UUID_PATTERN.test(idempotencyKey)) invalidRow('idempotency key must be a UUID')
+    const { data, error } = await this.client.functions.invoke(
+      'angela-anamnesis-submit',
+      { body: { action: 'status', idempotency_key: idempotencyKey } },
+    )
+    if (error || !isRecord(data) || !('delivery' in data)) {
+      throw new Error('Não foi possível confirmar a entrega agora.')
+    }
+    return mapDelivery(data.delivery)
   }
 
   private assertMutation(draft: AnamnesisDraft, expectedRevision: number): void {
