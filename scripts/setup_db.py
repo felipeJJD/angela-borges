@@ -24,6 +24,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence, TextIO
 PROJECT_REF = "roovdrcksjfinxhbuxxo"
 PROJECT_URL = f"https://{PROJECT_REF}.supabase.co"
 EXPECTED_ASSET_COUNT = 34
+MAX_ERROR_BODY_BYTES = 4_096
 
 
 class BootstrapError(RuntimeError):
@@ -107,9 +108,22 @@ class SupabaseHttpApi:
             with self._opener(request, timeout=60) as response:
                 return response.read()
         except urllib.error.HTTPError as exc:
-            exc.read()
-            if allow_not_found and exc.code == 404:
-                return None
+            body = exc.read(MAX_ERROR_BODY_BYTES + 1)
+            exc.close()
+            if allow_not_found:
+                if exc.code == 404:
+                    return None
+                if exc.code == 400 and len(body) <= MAX_ERROR_BODY_BYTES:
+                    try:
+                        envelope = json.loads(body)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        envelope = None
+                    if (
+                        isinstance(envelope, dict)
+                        and envelope.get("error") == "not_found"
+                        and envelope.get("statusCode") == "404"
+                    ):
+                        return None
             raise BootstrapError(f"{surface} returned HTTP {exc.code}") from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise BootstrapError(f"{surface} request failed") from None

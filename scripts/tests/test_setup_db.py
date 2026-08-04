@@ -369,6 +369,78 @@ class SafeBootstrapTests(unittest.TestCase):
             f"Bearer {legacy_service_role}",
         )
 
+    def test_storage_normalizes_exact_400_not_found_envelope_to_missing_object(self) -> None:
+        def missing_object_gateway(*_args: object, **_kwargs: object) -> object:
+            raise urllib.error.HTTPError(
+                url="https://synthetic.supabase.co/storage/v1/object/treinos/missing.pdf",
+                code=400,
+                msg="storage envelope",
+                hdrs=None,
+                fp=io.BytesIO(b'{"error":"not_found","statusCode":"404"}'),
+            )
+
+        api = setup_db.SupabaseHttpApi(
+            "synthetic-management-secret",
+            "sb_secret_synthetic-regression-key",
+            opener=missing_object_gateway,
+        )
+
+        self.assertIsNone(api.download_object("team-1/missing.pdf"))
+
+    def test_storage_all_other_400_envelopes_fail_closed_without_body_leak(self) -> None:
+        bodies = (
+            b'{"error":"permission_denied","statusCode":"404"}',
+            b'{"error":"not_found","statusCode":"403"}',
+            b'{"error":"not_found","statusCode":404}',
+            b"non-json-sensitive-provider-body",
+            b'{"error":"not_found","statusCode":"404","padding":"'
+            + (b"x" * setup_db.MAX_ERROR_BODY_BYTES)
+            + b'"}',
+        )
+
+        for body in bodies:
+            with self.subTest(body_length=len(body)):
+                def rejected_gateway(*_args: object, **_kwargs: object) -> object:
+                    raise urllib.error.HTTPError(
+                        url="https://synthetic.supabase.co/storage/v1/object/treinos/test.pdf",
+                        code=400,
+                        msg="storage envelope",
+                        hdrs=None,
+                        fp=io.BytesIO(body),
+                    )
+
+                api = setup_db.SupabaseHttpApi(
+                    "synthetic-management-secret",
+                    "sb_secret_synthetic-regression-key",
+                    opener=rejected_gateway,
+                )
+                with self.assertRaises(setup_db.BootstrapError) as raised:
+                    api.download_object("team-1/test.pdf")
+
+                self.assertEqual(
+                    str(raised.exception),
+                    "Supabase Storage returned HTTP 400",
+                )
+                self.assertNotIn("provider-body", str(raised.exception))
+
+    def test_storage_plain_http_404_remains_a_missing_object(self) -> None:
+        def missing_object_gateway(*_args: object, **_kwargs: object) -> object:
+            raise urllib.error.HTTPError(
+                url="https://synthetic.supabase.co/storage/v1/object/treinos/missing.pdf",
+                code=404,
+                msg="not found",
+                hdrs=None,
+                fp=io.BytesIO(b"discarded-provider-body"),
+            )
+
+        api = setup_db.SupabaseHttpApi(
+            "synthetic-management-secret",
+            "sb_secret_synthetic-regression-key",
+            opener=missing_object_gateway,
+        )
+
+        self.assertIsNone(api.download_object("team-1/missing.pdf"))
+
     def test_cli_apply_uses_server_only_credentials_without_printing_them(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
