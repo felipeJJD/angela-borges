@@ -144,11 +144,13 @@ class SupabaseHttpApi:
         return f"{PROJECT_URL}/storage/v1/object/treinos/{encoded}"
 
     def _storage_headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "apikey": self._service_role_key,
-            "Authorization": f"Bearer {self._service_role_key}",
             "User-Agent": self._user_agent(),
         }
+        if not self._service_role_key.startswith(("sb_secret_", "sb_publishable_")):
+            headers["Authorization"] = f"Bearer {self._service_role_key}"
+        return headers
 
     def download_object(self, storage_path: str) -> bytes | None:
         return self._request(

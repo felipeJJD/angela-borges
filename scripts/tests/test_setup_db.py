@@ -296,6 +296,79 @@ class SafeBootstrapTests(unittest.TestCase):
         self.assertNotIn(sensitive_pat, message)
         self.assertNotIn(sensitive_service_key, message)
 
+    def test_modern_secret_key_uses_apikey_without_bearer_authorization(self) -> None:
+        modern_secret_key = "sb_secret_synthetic-regression-key"
+        observed_headers: dict[str, str] = {}
+
+        class AcceptedResponse:
+            def __enter__(self) -> "AcceptedResponse":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b"{}"
+
+        def storage_gateway(request: object, **_kwargs: object) -> AcceptedResponse:
+            nonlocal observed_headers
+            observed_headers = {
+                name.lower(): value for name, value in request.header_items()
+            }
+            if "authorization" in observed_headers:
+                raise urllib.error.HTTPError(
+                    url="https://synthetic.supabase.co/storage/v1/object/treinos/test.pdf",
+                    code=400,
+                    msg="opaque key is not a JWT",
+                    hdrs=None,
+                    fp=io.BytesIO(b"discarded-provider-body"),
+                )
+            return AcceptedResponse()
+
+        api = setup_db.SupabaseHttpApi(
+            "synthetic-management-secret",
+            modern_secret_key,
+            opener=storage_gateway,
+        )
+        api.upload_object("team-1/test.pdf", b"synthetic-pdf")
+
+        self.assertEqual(observed_headers["apikey"], modern_secret_key)
+        self.assertNotIn("authorization", observed_headers)
+
+    def test_legacy_service_role_jwt_keeps_bearer_authorization(self) -> None:
+        legacy_service_role = "synthetic-header.synthetic-payload.synthetic-signature"
+        observed_headers: dict[str, str] = {}
+
+        class AcceptedResponse:
+            def __enter__(self) -> "AcceptedResponse":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b"synthetic-pdf"
+
+        def storage_gateway(request: object, **_kwargs: object) -> AcceptedResponse:
+            nonlocal observed_headers
+            observed_headers = {
+                name.lower(): value for name, value in request.header_items()
+            }
+            return AcceptedResponse()
+
+        api = setup_db.SupabaseHttpApi(
+            "synthetic-management-secret",
+            legacy_service_role,
+            opener=storage_gateway,
+        )
+        self.assertEqual(api.download_object("team-1/test.pdf"), b"synthetic-pdf")
+
+        self.assertEqual(observed_headers["apikey"], legacy_service_role)
+        self.assertEqual(
+            observed_headers["authorization"],
+            f"Bearer {legacy_service_role}",
+        )
+
     def test_cli_apply_uses_server_only_credentials_without_printing_them(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
