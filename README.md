@@ -22,11 +22,28 @@ supabase/
     0003_manual_team_promotion.sql  progressão de team manual (só admin libera)
     0004_workout_plans.sql  planos estruturados (jsonb) com RLS por team
   functions/admin-users/  edge function de gestão (create/delete/reset/set_team/list)
-scripts/setup_db.py       upload dos PDFs + seed workouts + cria admin
+scripts/setup_db.py       bootstrap idempotente dos 34 PDFs + workouts + planos
 scripts/extract_plans.py  extração one-time dos PDFs -> scripts/plans/*.json
 scripts/seed_plans.py     upsert dos planos em workout_plans
 scripts/plans/            fonte revisável dos planos extraídos (1 json por ficha)
 ```
+
+## Bootstrap seguro do conteúdo
+
+O bootstrap é offline e somente leitura por padrão. Ele exige exatamente 34 PDFs e
+34 planos correspondentes e retorna apenas contagens e hashes:
+
+```powershell
+python scripts/setup_db.py --pdf-root "<pasta-com-Team-1.0-Team-2.0-Team-3.0>"
+```
+
+`--verify-only` faz verificação remota sem escrita. `--apply` faz uploads com upsert,
+upsert transacional de `workouts`/`workout_plans` e verifica novamente contagens e
+SHA-256. Os dois modos remotos exigem `SUPABASE_PAT` e
+`SUPABASE_SERVICE_ROLE_KEY` injetados somente no ambiente do processo; não use
+argumentos, `.env`, logs ou arquivos versionados para esses valores. As migrations
+`0001` a `0004` precisam estar aplicadas antes do bootstrap. O script não cria
+usuário administrativo.
 
 ## Modelo de dados
 
