@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  canonicalizeAngelaPlanSnapshot,
   createAngelaPersonalizedPlan,
   type AngelaPlanDeliverySource,
 } from './AngelaPersonalizedPlan'
@@ -60,6 +61,25 @@ function activeRow() {
     created_at: '2026-08-03T18:00:00.000Z',
     updated_at: '2026-08-03T18:05:00.000Z',
   }
+}
+
+async function activeRowWithVideo(videoUrl: unknown) {
+  const row = structuredClone(activeRow())
+  const training = row.training as {
+    days: { exercises: Record<string, unknown>[] }[]
+  }
+  training.days[0].exercises[0].video_url = videoUrl
+  const canonical = await canonicalizeAngelaPlanSnapshot({
+    user_id: row.user_id,
+    protocol_id: row.protocol_id,
+    protocol_version: row.protocol_version,
+    schema_version: row.schema_version,
+    diet: row.diet,
+    training: row.training,
+    generation_metadata: row.generation_metadata,
+  })
+  row.snapshot_hash = canonical.snapshotHash
+  return row
 }
 
 describe('Angela personalized plan module', () => {
@@ -262,6 +282,23 @@ describe('Angela personalized plan module', () => {
         diet: { meals: expect.any(Array) },
         training: { days: expect.any(Array) },
       },
+    })
+  })
+
+  it.each([
+    ['an insecure scheme', 'http://videos.example.test/agachamento.mp4'],
+    ['an executable URL', 'javascript:alert(1)'],
+    ['a non-string URL', { href: 'https://videos.example.test/agachamento.mp4' }],
+  ])('fails closed when video_url contains %s', async (_name, videoUrl) => {
+    const row = await activeRowWithVideo(videoUrl)
+    const module = createAngelaPersonalizedPlan(
+      USER_ID,
+      source({ readActivePlan: async () => row }),
+    )
+
+    await expect(module.load()).resolves.toMatchObject({
+      kind: 'failed',
+      reason: 'invalid-published-plan',
     })
   })
 

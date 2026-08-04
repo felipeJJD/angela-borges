@@ -43,6 +43,7 @@ export type DashboardDeliveryPorts = Readonly<{
   post(
     request: Readonly<{
       url: string;
+      redirect: "error";
       headers: Readonly<Record<string, string>>;
       body: string;
       timeoutMs: number;
@@ -194,6 +195,7 @@ export async function deliverDashboardOutboxItem(
   try {
     response = await ports.post({
       url: config.dashboardWebhookUrl,
+      redirect: "error",
       headers,
       body: rawBody,
       timeoutMs: config.timeoutMs,

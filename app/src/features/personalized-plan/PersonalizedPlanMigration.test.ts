@@ -59,6 +59,20 @@ describe('0006 personalized plan migration', () => {
     expect(sql).not.toContain('jsonb_object_length')
   })
 
+  it('keeps exercise video optional while accepting only bounded HTTPS links', () => {
+    const sql = migration()
+    const testSql = harness()
+
+    expect(sql).toContain("exercise ? 'video_url'")
+    expect(sql).toContain("jsonb_typeof(exercise->'video_url')")
+    expect(sql).toMatch(/length\(exercise->>'video_url'\)\s*>\s*2048/)
+    expect(sql).toMatch(/exercise->>'video_url'[^\n]+https:\/\//)
+    expect(testSql).toContain(
+      'https://www.youtube.com/watch?v=tuwhzzpdagc',
+    )
+    expect(testSql).toContain('unsafe exercise video unexpectedly staged')
+  })
+
   it('keeps the exact service-only RPC signatures and hash envelope', () => {
     const sql = migration()
     const compact = sql.replace(/\s+/g, ' ')

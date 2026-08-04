@@ -86,20 +86,41 @@ describe('Meu Plano observable states', () => {
             'fa3af851c7b7929761867755f5850b89ec17e601f356b17caac1e0b7edbb2008',
           state: 'active',
           diet: {
+            notes: 'Evite bebidas durante as refeições.',
             meals: [
               {
                 name: 'Almoço',
                 time: '12:00',
-                foods: [{ name: 'Arroz', quantity: 100, unit: 'g' }],
+                foods: [
+                  {
+                    name: 'Arroz',
+                    quantity: 100,
+                    unit: 'g',
+                    substitutions: ['Batata-doce', 'Mandioca'],
+                  },
+                ],
               },
             ],
           },
           training: {
+            notes: 'Priorize a execução controlada.',
             days: [
               {
                 name: 'Treino A',
                 day_label: 'Dia 1',
-                exercises: [{ name: 'Agachamento', sets: 3, reps: '12' }],
+                warmup: 'Mobilidade de quadril por 5 minutos.',
+                cooldown: 'Alongamento leve por 3 minutos.',
+                exercises: [
+                  {
+                    name: 'Agachamento',
+                    sets: 3,
+                    reps: '12',
+                    rest_seconds: 75,
+                    notes: 'Mantenha os joelhos alinhados.',
+                    video_url: 'https://www.youtube.com/watch?v=tuwHzzPdaGc',
+                    substitutions: ['Leg press', 'Agachamento goblet'],
+                  },
+                ],
               },
             ],
           },
@@ -127,8 +148,23 @@ describe('Meu Plano observable states', () => {
     expect(html).toContain('1 exercício')
     expect(html).toContain('Almoço')
     expect(html).toContain('Arroz')
+    expect(html).toContain('Evite bebidas durante as refeições.')
+    expect(html).toContain('Substituições: Batata-doce, Mandioca')
     expect(html).toContain('Treino A')
     expect(html).toContain('Agachamento')
+    expect(html).toContain('Priorize a execução controlada.')
+    expect(html).toContain('Aquecimento:')
+    expect(html).toContain('Mobilidade de quadril por 5 minutos.')
+    expect(html).toContain('Desaquecimento:')
+    expect(html).toContain('Alongamento leve por 3 minutos.')
+    expect(html).toContain('Descanso: 75 segundos')
+    expect(html).toContain('Mantenha os joelhos alinhados.')
+    expect(html).toContain('Substituições: Leg press, Agachamento goblet')
+    expect(html).toContain('Assistir vídeo')
+    expect(html).toContain(
+      'href="https://www.youtube.com/watch?v=tuwHzzPdaGc"',
+    )
+    expect(html).toContain('target="_blank"')
     expect(html).toContain('carregada nesta sessão')
     expect(html).not.toContain('qualityWarnings')
   })

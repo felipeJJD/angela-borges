@@ -6,7 +6,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -27,6 +28,14 @@ function errorResponse(message: string, status: number): Response {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+function createServiceRoleClient() {
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+}
+
+type AdminClient = ReturnType<typeof createServiceRoleClient>;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Input validators
@@ -91,9 +100,7 @@ async function requireAdmin(
   }
 
   // Verify admin role via service role client (bypasses RLS for the check)
-  const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
+  const adminClient = createServiceRoleClient();
 
   const { data: profile, error: profileError } = await adminClient
     .from("profiles")
@@ -119,7 +126,7 @@ async function requireAdmin(
 
 async function createStudent(
   body: Record<string, unknown>,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
 ): Promise<Response> {
   const email = validateEmail(body.email);
   const password = validatePassword(body.password);
@@ -161,10 +168,12 @@ async function createStudent(
 
 async function deleteStudent(
   body: Record<string, unknown>,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
 ): Promise<Response> {
   const userId = validateUserId(body.user_id);
-  if (!userId) return errorResponse("Invalid or missing user_id (UUID expected)", 400);
+  if (!userId) {
+    return errorResponse("Invalid or missing user_id (UUID expected)", 400);
+  }
 
   // Safety: never delete an admin
   const { data: profile, error: profileError } = await adminClient
@@ -206,25 +215,47 @@ async function deleteStudent(
   return corsResponse({ deleted: true, user_id: userId });
 }
 
-async function resetPassword(
+export async function resetPassword(
   body: Record<string, unknown>,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
 ): Promise<Response> {
   const userId = validateUserId(body.user_id);
   const newPassword = validatePassword(body.new_password);
 
-  if (!userId) return errorResponse("Invalid or missing user_id (UUID expected)", 400);
+  if (!userId) {
+    return errorResponse("Invalid or missing user_id (UUID expected)", 400);
+  }
   if (!newPassword) {
     return errorResponse("new_password must be at least 6 characters", 400);
   }
 
-  const { data: targetProfile } = await adminClient
+  const { data: targetProfile, error: targetProfileError } = await adminClient
     .from("profiles")
     .select("role")
     .eq("id", userId)
     .single();
-  if (targetProfile?.role === "admin") {
+  if (targetProfileError) {
+    console.error({
+      event: "reset_password_profile_fetch_failed",
+      user_id: userId,
+      error: targetProfileError.message,
+    });
+    return errorResponse("Could not verify target user role", 500);
+  }
+  if (!targetProfile) {
+    return errorResponse("User not found", 404);
+  }
+  const targetRole = (targetProfile as { role?: unknown }).role;
+  if (targetRole === "admin") {
     return errorResponse("Cannot reset password of an admin account", 403);
+  }
+  if (targetRole !== "aluna") {
+    console.warn({
+      event: "reset_password_role_blocked",
+      user_id: userId,
+      role: typeof targetRole === "string" ? targetRole : "unknown",
+    });
+    return errorResponse("Can only reset password of a student account", 403);
   }
 
   const { error } = await adminClient.auth.admin.updateUserById(userId, {
@@ -246,13 +277,17 @@ async function resetPassword(
 
 async function setTeam(
   body: Record<string, unknown>,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
 ): Promise<Response> {
   const userId = validateUserId(body.user_id);
   const team = validateTeam(body.team);
 
-  if (!userId) return errorResponse("Invalid or missing user_id (UUID expected)", 400);
-  if (team === null) return errorResponse("team must be an integer between 1 and 3", 400);
+  if (!userId) {
+    return errorResponse("Invalid or missing user_id (UUID expected)", 400);
+  }
+  if (team === null) {
+    return errorResponse("team must be an integer between 1 and 3", 400);
+  }
 
   const { error } = await adminClient
     .from("profiles")
@@ -274,7 +309,7 @@ async function setTeam(
 }
 
 async function listStudents(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
 ): Promise<Response> {
   // 1. Fetch all profiles with role='aluna'
   const { data: profiles, error: profilesError } = await adminClient
@@ -358,7 +393,8 @@ async function listStudents(
   const completionsCountMap: Record<string, number> = {};
   if (!completionsError && completions) {
     for (const c of completions) {
-      completionsCountMap[c.user_id] = (completionsCountMap[c.user_id] ?? 0) + 1;
+      completionsCountMap[c.user_id] = (completionsCountMap[c.user_id] ?? 0) +
+        1;
     }
   } else if (completionsError) {
     console.warn({
@@ -385,7 +421,7 @@ async function listStudents(
 // ──────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ──────────────────────────────────────────────────────────────────────────────
-Deno.serve(async (req: Request) => {
+export async function handleAdminUsersRequest(req: Request): Promise<Response> {
   // Preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -413,9 +449,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Service role client for all admin operations
-  const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
+  const adminClient = createServiceRoleClient();
 
   console.info({
     event: "admin_action",
@@ -442,4 +476,8 @@ Deno.serve(async (req: Request) => {
     default:
       return errorResponse(`Unknown action: ${action}`, 400);
   }
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleAdminUsersRequest);
+}

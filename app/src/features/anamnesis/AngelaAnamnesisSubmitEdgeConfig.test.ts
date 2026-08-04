@@ -63,6 +63,14 @@ describe('Angela Edge configuration', () => {
       {
         ANGELA_DASHBOARD_EXPECTED_ORIGIN: 'https://other.example.test',
       },
+      {
+        ANGELA_DASHBOARD_WEBHOOK_URL:
+          'https://dashboard.example.test:8443/api/anamnese/from-app',
+      },
+      {
+        ANGELA_DASHBOARD_EXPECTED_ORIGIN:
+          'https://dashboard.example.test:8443',
+      },
     ]
 
     for (const invalid of invalidVariants) {

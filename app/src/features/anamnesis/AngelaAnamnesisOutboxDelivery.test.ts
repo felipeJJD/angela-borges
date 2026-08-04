@@ -92,6 +92,7 @@ describe('Dashboard outbox delivery', () => {
 
     const request = deliveryPorts.post.mock.calls[0][0]
     expect(request.url).toBe(config.dashboardWebhookUrl)
+    expect(request.redirect).toBe('error')
     expect(request.headers['x-webhook-timestamp']).toBe(String(nowSeconds))
     expect(request.headers['x-correlation-id']).toBe(correlationId)
     const token = request.headers.authorization.replace(/^Bearer /, '')
@@ -127,6 +128,30 @@ describe('Dashboard outbox delivery', () => {
     expect(deliveryPorts.markDelivered).not.toHaveBeenCalled()
     expect(deliveryPorts.markRetry).toHaveBeenCalled()
   })
+
+  it.each([307, 308])(
+    'keeps redirect response %i retryable without accepting its acknowledgment',
+    async (status) => {
+      const deliveryPorts = ports(
+        JSON.stringify({ success: true, correlation_id: correlationId }),
+        status,
+      )
+
+      await expect(
+        deliverDashboardOutboxItem(item, config, deliveryPorts, nowSeconds),
+      ).resolves.toEqual({
+        status: 'accepted_pending',
+        retryable: true,
+        attempts: 1,
+      })
+      expect(deliveryPorts.markDelivered).not.toHaveBeenCalled()
+      expect(deliveryPorts.markRetry).toHaveBeenCalledWith(
+        correlationId,
+        1,
+        `dashboard_http_${status}`,
+      )
+    },
+  )
 
   it('uses the same delivery seam for a bounded server-side drain', async () => {
     const deliveryPorts = ports(

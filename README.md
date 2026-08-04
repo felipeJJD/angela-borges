@@ -9,7 +9,7 @@ administrativo para gestão das alunas. Visual dark + coral, identidade da marca
 - **Frontend:** Vite + React 19 + TypeScript + Tailwind v4 + vite-plugin-pwa
 - **PDF:** react-pdf (links de vídeo dos exercícios clicáveis)
 - **Backend:** Supabase (Auth, Postgres + RLS, Storage privado, Edge Function)
-- **Projeto Supabase:** `avkmryapdiwsgwbvgkwe`
+- **Projeto Supabase:** `roovdrcksjfinxhbuxxo`
 
 ## Estrutura
 
@@ -63,9 +63,9 @@ npm run dev      # http://localhost:5173
 npm run build    # bundle de produção em dist/
 ```
 
-O `app/.env` já vem versionado com `VITE_SUPABASE_URL` e a `VITE_SUPABASE_ANON_KEY`
-(chaves **públicas** — o acesso é protegido por RLS no Supabase), então é só clonar,
-`npm install` e `npm run dev`. Não precisa configurar nada.
+Copie `app/.env.example` para um `app/.env.local` não versionado e forneça
+`VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`. A configuração falha fechada quando
+a URL não aponta para o projeto Angela. O acesso aos dados continua protegido por RLS.
 
 > A `service_role` key NUNCA está no repositório. Só URL + anon key, que já são
 > expostas no JS de qualquer app Supabase.

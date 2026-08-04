@@ -330,6 +330,7 @@ function createDeliveryPorts(
     async post(deliveryRequest) {
       const response = await fetch(deliveryRequest.url, {
         method: "POST",
+        redirect: deliveryRequest.redirect,
         headers: deliveryRequest.headers,
         body: deliveryRequest.body,
         signal: AbortSignal.timeout(deliveryRequest.timeoutMs),

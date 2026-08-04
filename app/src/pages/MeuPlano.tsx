@@ -6,6 +6,7 @@ import type {
   AngelaPersonalizedPlanState,
   AngelaPublishedPlan,
 } from '../features/personalized-plan/AngelaPersonalizedPlan'
+import { safeAngelaExerciseVideoUrl } from '../features/personalized-plan/AngelaPersonalizedPlan'
 
 export type MeuPlanoViewProps = Readonly<{
   state: AngelaPersonalizedPlanState
@@ -22,6 +23,15 @@ function number(value: unknown): string | null {
   return typeof value === 'number' && Number.isFinite(value)
     ? new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(value)
     : null
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string =>
+          typeof item === 'string' && item.trim().length > 0,
+      )
+    : []
 }
 
 function countLabel(value: number, singular: string, plural: string): string {
@@ -244,6 +254,11 @@ function DietSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
           Dieta
         </h2>
       </div>
+      {typeof plan.diet.notes === 'string' && plan.diet.notes.trim() !== '' && (
+        <p className="rounded-2xl border border-border bg-surface/60 p-4 text-sm leading-relaxed text-muted">
+          {plan.diet.notes}
+        </p>
+      )}
       {plan.diet.meals.map((meal, mealIndex) => (
         <article
           key={`${text(meal.name, 'Refeição')}-${mealIndex}`}
@@ -261,18 +276,26 @@ function DietSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
             {meal.foods.map((food, foodIndex) => {
               const quantity = number(food.quantity)
               const unit = typeof food.unit === 'string' ? food.unit : ''
+              const substitutions = stringList(food.substitutions)
               return (
                 <li
                   key={`${text(food.name, 'Alimento')}-${foodIndex}`}
-                  className="flex items-center justify-between gap-3 py-2.5 text-sm"
+                  className="py-2.5 text-sm"
                 >
-                  <span className="text-white">
-                    {text(food.name, `Alimento ${foodIndex + 1}`)}
-                  </span>
-                  {quantity !== null && (
-                    <span className="shrink-0 text-muted">
-                      {quantity} {unit}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-white">
+                      {text(food.name, `Alimento ${foodIndex + 1}`)}
                     </span>
+                    {quantity !== null && (
+                      <span className="shrink-0 text-muted">
+                        {quantity} {unit}
+                      </span>
+                    )}
+                  </div>
+                  {substitutions.length > 0 && (
+                    <p className="mt-1 text-xs leading-relaxed text-muted-2">
+                      Substituições: {substitutions.join(', ')}
+                    </p>
                   )}
                 </li>
               )
@@ -295,6 +318,12 @@ function TrainingSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
           Treino
         </h2>
       </div>
+      {typeof plan.training.notes === 'string' &&
+        plan.training.notes.trim() !== '' && (
+          <p className="rounded-2xl border border-border bg-surface/60 p-4 text-sm leading-relaxed text-muted">
+            {plan.training.notes}
+          </p>
+        )}
       {plan.training.days.map((day, dayIndex) => (
         <article
           key={`${text(day.name, 'Treino')}-${dayIndex}`}
@@ -306,23 +335,73 @@ function TrainingSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
           <h3 className="mt-1 text-display text-lg text-white">
             {text(day.name, `Treino ${dayIndex + 1}`)}
           </h3>
+          {((typeof day.warmup === 'string' && day.warmup.trim() !== '') ||
+            (typeof day.cooldown === 'string' && day.cooldown.trim() !== '')) && (
+            <div className="mt-3 space-y-1 rounded-xl border border-border/70 bg-surface-2/50 p-3 text-xs leading-relaxed text-muted">
+              {typeof day.warmup === 'string' && day.warmup.trim() !== '' && (
+                <p>
+                  <span className="font-semibold text-white">Aquecimento:</span>{' '}
+                  {day.warmup}
+                </p>
+              )}
+              {typeof day.cooldown === 'string' && day.cooldown.trim() !== '' && (
+                <p>
+                  <span className="font-semibold text-white">Desaquecimento:</span>{' '}
+                  {day.cooldown}
+                </p>
+              )}
+            </div>
+          )}
           <ol className="mt-3 divide-y divide-border/70">
-            {day.exercises.map((exercise, exerciseIndex) => (
-              <li
-                key={`${text(exercise.name, 'Exercício')}-${exerciseIndex}`}
-                className="py-3"
-              >
-                <p className="text-sm font-medium text-white">
-                  {text(exercise.name, `Exercício ${exerciseIndex + 1}`)}
-                </p>
-                <p className="mt-1 text-xs text-muted">
-                  {typeof exercise.sets === 'number'
-                    ? `${exercise.sets} séries`
-                    : 'Séries conforme orientação'}
-                  {typeof exercise.reps === 'string' ? ` · ${exercise.reps}` : ''}
-                </p>
-              </li>
-            ))}
+            {day.exercises.map((exercise, exerciseIndex) => {
+              const substitutions = stringList(exercise.substitutions)
+              const videoUrl = safeAngelaExerciseVideoUrl(exercise.video_url)
+              return (
+                <li
+                  key={`${text(exercise.name, 'Exercício')}-${exerciseIndex}`}
+                  className="py-3"
+                >
+                  <p className="text-sm font-medium text-white">
+                    {text(exercise.name, `Exercício ${exerciseIndex + 1}`)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    {typeof exercise.sets === 'number'
+                      ? `${exercise.sets} séries`
+                      : 'Séries conforme orientação'}
+                    {typeof exercise.reps === 'string' ? ` · ${exercise.reps}` : ''}
+                  </p>
+                  {typeof exercise.rest_seconds === 'number' &&
+                    Number.isFinite(exercise.rest_seconds) && (
+                      <p className="mt-1 text-xs text-muted">
+                        Descanso: {exercise.rest_seconds}{' '}
+                        {exercise.rest_seconds === 1 ? 'segundo' : 'segundos'}
+                      </p>
+                    )}
+                  {typeof exercise.notes === 'string' &&
+                    exercise.notes.trim() !== '' && (
+                      <p className="mt-2 text-xs leading-relaxed text-muted-2">
+                        {exercise.notes}
+                      </p>
+                    )}
+                  {substitutions.length > 0 && (
+                    <p className="mt-1 text-xs leading-relaxed text-muted-2">
+                      Substituições: {substitutions.join(', ')}
+                    </p>
+                  )}
+                  {videoUrl !== null && (
+                    <a
+                      href={videoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      referrerPolicy="no-referrer"
+                      className="mt-3 inline-flex min-h-10 items-center rounded-xl border border-coral/40 bg-coral/10 px-3 text-xs font-semibold text-coral-bright"
+                    >
+                      Assistir vídeo
+                    </a>
+                  )}
+                </li>
+              )
+            })}
           </ol>
         </article>
       ))}

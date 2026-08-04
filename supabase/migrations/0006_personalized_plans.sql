@@ -244,6 +244,19 @@ begin
            (exercise->>'rest_seconds')::numeric
         or jsonb_typeof(exercise->'technique') not in ('null', 'string')
         or jsonb_typeof(exercise->'notes') not in ('null', 'string')
+        or (
+          exercise ? 'video_url'
+          and (
+            jsonb_typeof(exercise->'video_url') not in ('null', 'string')
+            or (
+              jsonb_typeof(exercise->'video_url') = 'string'
+              and (
+                length(exercise->>'video_url') > 2048
+                or exercise->>'video_url' !~ '^https://[^[:space:]]+$'
+              )
+            )
+          )
+        )
         or jsonb_typeof(exercise->'substitutions') is distinct from 'array'
         or jsonb_array_length(exercise->'substitutions') > 50
         or exists (

@@ -28,9 +28,17 @@ export type AngelaDiet = Readonly<
   }
 >
 
+export type AngelaExercise = Readonly<
+  JsonObject & {
+    video_url?: string | null
+  }
+>
+
 export type AngelaTraining = Readonly<
   JsonObject & {
-    days: readonly Readonly<JsonObject & { exercises: readonly JsonObject[] }>[]
+    days: readonly Readonly<
+      JsonObject & { exercises: readonly AngelaExercise[] }
+    >[]
   }
 >
 
@@ -125,6 +133,23 @@ class InvalidPublishedPlanError extends Error {}
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function safeAngelaExerciseVideoUrl(value: unknown): string | null {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 2048 ||
+    value !== value.trim()
+  ) {
+    return null
+  }
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && url.hostname !== '' ? value : null
+  } catch {
+    return null
+  }
 }
 
 function lexicalJson(value: unknown): string {
@@ -250,6 +275,9 @@ function validExercise(value: unknown): value is JsonObject {
     Number(value.rest_seconds) >= 0 &&
     (value.technique === null || typeof value.technique === 'string') &&
     (value.notes === null || typeof value.notes === 'string') &&
+    (value.video_url === undefined ||
+      value.video_url === null ||
+      safeAngelaExerciseVideoUrl(value.video_url) !== null) &&
     isStringArray(value.substitutions)
   )
 }

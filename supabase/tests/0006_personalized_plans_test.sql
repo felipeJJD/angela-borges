@@ -158,6 +158,7 @@ declare
         "rest_seconds": 60,
         "technique": null,
         "notes": null,
+        "video_url": "https://www.youtube.com/watch?v=tuwHzzPdaGc",
         "substitutions": ["Agachamento livre"]
       }]
     }]
@@ -201,6 +202,28 @@ begin
       v_metadata
     );
     raise exception 'null source protocol timestamp unexpectedly staged';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'ANGELA_PLAN_SNAPSHOT_INCOMPLETE' then raise; end if;
+  end;
+
+  begin
+    perform public.stage_angela_plan(
+      '22222222-2222-4222-8222-222222222222',
+      '88888888-8888-4888-8888-888888888888',
+      1,
+      '2026-08-03 16:45:00+00',
+      'angela-plan.v1',
+      repeat('8', 64),
+      v_diet,
+      jsonb_set(
+        v_training,
+        '{days,0,exercises,0,video_url}',
+        '"http://videos.example.test/agachamento.mp4"'::jsonb,
+        true
+      ),
+      v_metadata
+    );
+    raise exception 'unsafe exercise video unexpectedly staged';
   exception when invalid_parameter_value then
     if sqlerrm <> 'ANGELA_PLAN_SNAPSHOT_INCOMPLETE' then raise; end if;
   end;
