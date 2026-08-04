@@ -11,9 +11,12 @@ import { safeAngelaExerciseVideoUrl } from '../features/personalized-plan/Angela
 export type MeuPlanoViewProps = Readonly<{
   state: AngelaPersonalizedPlanState
   online: boolean
+  section?: MeuPlanoSection
   reloading: boolean
   onReload(): void
 }>
+
+export type MeuPlanoSection = 'all' | 'diet' | 'training'
 
 function text(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() !== '' ? value : fallback
@@ -63,23 +66,31 @@ function OfflineNotice(
   )
 }
 
-function StateShell({ children }: Readonly<{ children: ReactNode }>) {
+function StateShell({
+  children,
+  section,
+}: Readonly<{ children: ReactNode; section: MeuPlanoSection }>) {
+  const title =
+    section === 'diet' ? 'Dieta' : section === 'training' ? 'Treino' : 'Meu Plano'
   return (
     <div className="space-y-5 px-4 pt-6 safe-top">
       <header className="animate-fade-up">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-coral-bright">
           Protocolo personalizado
         </p>
-        <h1 className="mt-1 text-display text-3xl text-white">Meu Plano</h1>
+        <h1 className="mt-1 text-display text-3xl text-white">{title}</h1>
       </header>
       {children}
     </div>
   )
 }
 
-function EmptyState({ online }: Readonly<{ online: boolean }>) {
+function EmptyState({
+  online,
+  section,
+}: Readonly<{ online: boolean; section: MeuPlanoSection }>) {
   return (
-    <StateShell>
+    <StateShell section={section}>
       <OfflineNotice online={online} />
       <section className="rounded-2xl border border-border bg-surface p-5">
         <h2 className="text-display text-2xl text-white">
@@ -105,12 +116,13 @@ function BuildingState(
     online: boolean
     submittedAt: string
     deliveryStatus: 'accepted_pending' | 'delivered'
+    section: MeuPlanoSection
     reloading: boolean
     onReload(): void
   }>,
 ) {
   return (
-    <StateShell>
+    <StateShell section={props.section}>
       <OfflineNotice online={props.online} />
       <section className="rounded-2xl border border-coral/25 bg-coral/10 p-5">
         <div className="mb-5 flex gap-2" aria-hidden="true">
@@ -158,6 +170,7 @@ function FailedState(
       | 'invalid-published-plan'
       | 'unavailable'
     retryable: boolean
+    section: MeuPlanoSection
     reloading: boolean
     onReload(): void
   }>,
@@ -165,7 +178,7 @@ function FailedState(
   const deliveryFailed = props.reason === 'delivery-failed'
   const pipelineFailed = props.reason === 'pipeline-failed'
   return (
-    <StateShell>
+    <StateShell section={props.section}>
       <OfflineNotice online={props.online} />
       <section className="rounded-2xl border border-red-400/25 bg-red-400/10 p-5">
         <h2 className="text-display text-2xl text-white">
@@ -203,12 +216,27 @@ function FailedState(
   )
 }
 
-function PlanSummary({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
-  const cards = [
-    countLabel(plan.counts.dietMeals, 'refeição', 'refeições'),
+function PlanSummary({
+  plan,
+  section,
+}: Readonly<{ plan: AngelaPublishedPlan; section: MeuPlanoSection }>) {
+  const dietCard = countLabel(plan.counts.dietMeals, 'refeição', 'refeições')
+  const trainingCards = [
     countLabel(plan.counts.trainingDays, 'dia', 'dias'),
     countLabel(plan.counts.trainingExercises, 'exercício', 'exercícios'),
   ]
+  const cards =
+    section === 'diet'
+      ? [dietCard]
+      : section === 'training'
+        ? trainingCards
+        : [dietCard, ...trainingCards]
+  const columns =
+    cards.length === 1
+      ? 'grid-cols-1'
+      : cards.length === 2
+        ? 'grid-cols-2'
+        : 'grid-cols-3'
   return (
     <>
       <section className="rounded-2xl border border-coral/25 bg-gradient-to-br from-coral/20 to-surface p-5">
@@ -229,7 +257,7 @@ function PlanSummary({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
           Publicado em {formatPublishedAt(plan.activatedAt)}
         </p>
       </section>
-      <div className="grid grid-cols-3 gap-2">
+      <div className={`grid ${columns} gap-2`}>
         {cards.map((label) => (
           <div
             key={label}
@@ -438,14 +466,18 @@ function Metadata({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
 }
 
 function PublishedState(
-  props: Readonly<{ plan: AngelaPublishedPlan; online: boolean }>,
+  props: Readonly<{
+    plan: AngelaPublishedPlan
+    online: boolean
+    section: MeuPlanoSection
+  }>,
 ) {
   return (
-    <StateShell>
+    <StateShell section={props.section}>
       <OfflineNotice online={props.online} hasPublishedVersion />
-      <PlanSummary plan={props.plan} />
-      <DietSection plan={props.plan} />
-      <TrainingSection plan={props.plan} />
+      <PlanSummary plan={props.plan} section={props.section} />
+      {props.section !== 'training' && <DietSection plan={props.plan} />}
+      {props.section !== 'diet' && <TrainingSection plan={props.plan} />}
       <Metadata plan={props.plan} />
     </StateShell>
   )
@@ -454,14 +486,16 @@ function PublishedState(
 export function MeuPlanoView({
   state,
   online,
+  section = 'all',
   reloading,
   onReload,
 }: MeuPlanoViewProps) {
-  if (state.kind === 'empty') return <EmptyState online={online} />
+  if (state.kind === 'empty') return <EmptyState online={online} section={section} />
   if (state.kind === 'building') {
     return (
       <BuildingState
         online={online}
+        section={section}
         submittedAt={state.submittedAt}
         deliveryStatus={state.deliveryStatus}
         reloading={reloading}
@@ -473,6 +507,7 @@ export function MeuPlanoView({
     return (
       <FailedState
         online={online}
+        section={section}
         reason={state.reason}
         retryable={state.retryable}
         reloading={reloading}
@@ -480,5 +515,5 @@ export function MeuPlanoView({
       />
     )
   }
-  return <PublishedState plan={state.plan} online={online} />
+  return <PublishedState plan={state.plan} online={online} section={section} />
 }

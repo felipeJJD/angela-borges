@@ -12,6 +12,7 @@ import { ProgressRing } from '../components/ProgressRing'
 import { TeamBadge } from '../components/TeamBadge'
 import { WeekStrip } from '../components/WeekStrip'
 import { WorkoutCard } from '../components/WorkoutCard'
+import { HomePlanLinks } from '../components/HomePlanLinks'
 import { IconCheck, IconChevronRight, IconFlame, IconLock } from '../components/icons'
 
 function HomeSkeleton() {
@@ -195,6 +196,9 @@ export function Home() {
           </Button>
         )}
       </section>
+
+      {/* Personalized diet and training */}
+      <HomePlanLinks />
 
       {/* Current workout highlight */}
       {view.currentWorkout && (

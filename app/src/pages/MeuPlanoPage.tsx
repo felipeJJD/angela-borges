@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 
 import { useAngelaPersonalizedPlan } from '../features/personalized-plan/useAngelaPersonalizedPlan'
 import { useAuth } from '../hooks/useAuth'
-import { MeuPlanoView } from './MeuPlano'
+import { MeuPlanoView, type MeuPlanoSection } from './MeuPlano'
 
-function MeuPlanoSkeleton() {
+function MeuPlanoSkeleton({ section }: Readonly<{ section: MeuPlanoSection }>) {
+  const label = section === 'diet' ? 'Dieta' : section === 'training' ? 'Treino' : 'Meu Plano'
   return (
-    <div className="space-y-4 px-4 pt-6 safe-top" aria-label="Carregando Meu Plano">
+    <div className="space-y-4 px-4 pt-6 safe-top" aria-label={`Carregando ${label}`}>
       <div className="skeleton h-4 w-36 rounded" />
       <div className="skeleton h-9 w-44 rounded" />
       <div className="skeleton mt-6 h-48 rounded-2xl" />
@@ -14,7 +15,9 @@ function MeuPlanoSkeleton() {
   )
 }
 
-export function MeuPlanoPage() {
+export function MeuPlanoPage({
+  section = 'all',
+}: Readonly<{ section?: MeuPlanoSection }>) {
   const { session } = useAuth()
   const [online, setOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine,
@@ -31,11 +34,12 @@ export function MeuPlanoPage() {
     }
   }, [])
 
-  if (viewModel.loading) return <MeuPlanoSkeleton />
+  if (viewModel.loading) return <MeuPlanoSkeleton section={section} />
   return (
     <MeuPlanoView
       state={viewModel.state}
       online={online}
+      section={section}
       reloading={viewModel.reloading}
       onReload={viewModel.reload}
     />

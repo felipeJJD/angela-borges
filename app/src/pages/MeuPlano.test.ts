@@ -4,9 +4,13 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AngelaPersonalizedPlanState } from '../features/personalized-plan/AngelaPersonalizedPlan'
-import { MeuPlanoView } from './MeuPlano'
+import { MeuPlanoView, type MeuPlanoSection } from './MeuPlano'
 
-function render(state: AngelaPersonalizedPlanState, online = true): string {
+function render(
+  state: AngelaPersonalizedPlanState,
+  online = true,
+  section: MeuPlanoSection = 'all',
+): string {
   return renderToStaticMarkup(
     createElement(
       MemoryRouter,
@@ -14,6 +18,7 @@ function render(state: AngelaPersonalizedPlanState, online = true): string {
       createElement(MeuPlanoView, {
         state,
         online,
+        section,
         reloading: false,
         onReload: vi.fn(),
       }),
@@ -167,5 +172,56 @@ describe('Meu Plano observable states', () => {
     expect(html).toContain('target="_blank"')
     expect(html).toContain('carregada nesta sessão')
     expect(html).not.toContain('qualityWarnings')
+  })
+
+  it('organizes one published version into separate Dieta and Treino views', () => {
+    const state: AngelaPersonalizedPlanState = {
+      kind: 'published',
+      plan: {
+        planVersionId: '33333333-3333-4333-8333-333333333333',
+        userId: '22222222-2222-4222-8222-222222222222',
+        protocolId: '11111111-1111-4111-8111-111111111111',
+        protocolVersion: 3,
+        schemaVersion: 'angela-plan.v1',
+        snapshotHash:
+          'fa3af851c7b7929761867755f5850b89ec17e601f356b17caac1e0b7edbb2008',
+        state: 'active',
+        diet: {
+          meals: [{ name: 'Café da manhã', foods: [{ name: 'Ovos' }] }],
+        },
+        training: {
+          days: [
+            {
+              name: 'Treino A',
+              exercises: [{ name: 'Agachamento' }],
+            },
+          ],
+        },
+        generationMetadata: {
+          catalogVersion: 'catalog-v1',
+          engineVersion: 'engine-v1',
+          promptVersion: 'prompt-v1',
+          ragVersion: 'rag-v1',
+          schemaVersion: 'schema-v1',
+        },
+        counts: { dietMeals: 1, trainingDays: 1, trainingExercises: 1 },
+        stagedAt: '2026-08-03T18:00:00.000Z',
+        activatedAt: '2026-08-03T18:05:00.000Z',
+        createdAt: '2026-08-03T18:00:00.000Z',
+        updatedAt: '2026-08-03T18:05:00.000Z',
+      },
+    }
+
+    const diet = render(state, true, 'diet')
+    expect(diet).toContain('Café da manhã')
+    expect(diet).toContain('Ovos')
+    expect(diet).not.toContain('Treino A')
+    expect(diet).not.toContain('Agachamento')
+
+    const training = render(state, true, 'training')
+    expect(training).toContain('Treino A')
+    expect(training).toContain('Agachamento')
+    expect(training).not.toContain('Café da manhã')
+    expect(training).not.toContain('Ovos')
   })
 })

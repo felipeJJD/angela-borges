@@ -1,11 +1,18 @@
 import { NavLink } from 'react-router-dom'
-import { IconHome, IconDumbbell, IconFileText, IconUser } from './icons'
+import {
+  IconApple,
+  IconBookOpen,
+  IconDumbbell,
+  IconHome,
+  IconUser,
+} from './icons'
 
 const items = [
-  { to: '/meu-plano', label: 'Meu Plano', Icon: IconFileText, end: false },
   { to: '/', label: 'Início', Icon: IconHome, end: true },
-  { to: '/treinos', label: 'Biblioteca', Icon: IconDumbbell, end: false },
-  { to: '/perfil', label: 'Perfil', Icon: IconUser, end: false },
+  { to: '/dieta', label: 'Dieta', Icon: IconApple, end: true },
+  { to: '/treino', label: 'Treino', Icon: IconDumbbell, end: true },
+  { to: '/treinos', label: 'Biblioteca', Icon: IconBookOpen, end: true },
+  { to: '/perfil', label: 'Perfil', Icon: IconUser, end: true },
 ]
 
 export function BottomNav() {

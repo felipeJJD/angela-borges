@@ -38,15 +38,24 @@ export default function App() {
                 </RequireStudent>
               }
             >
+              <Route path="/" element={<Home />} />
+              <Route path="/meu-plano" element={<Navigate to="/dieta" replace />} />
               <Route
-                path="/meu-plano"
+                path="/dieta"
                 element={
-                  <Suspense fallback={<FullScreenLoader label="Abrindo seu plano…" />}>
-                    <MeuPlano />
+                  <Suspense fallback={<FullScreenLoader label="Abrindo sua dieta…" />}>
+                    <MeuPlano section="diet" />
                   </Suspense>
                 }
               />
-              <Route path="/" element={<Home />} />
+              <Route
+                path="/treino"
+                element={
+                  <Suspense fallback={<FullScreenLoader label="Abrindo seu treino…" />}>
+                    <MeuPlano section="training" />
+                  </Suspense>
+                }
+              />
               <Route path="/treinos" element={<Treinos />} />
               <Route
                 path="/anamnese"
@@ -81,7 +90,7 @@ export default function App() {
               }
             />
 
-            <Route path="*" element={<Navigate to="/meu-plano" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ToastProvider>
       </AuthProvider>

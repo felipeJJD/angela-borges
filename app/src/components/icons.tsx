@@ -33,6 +33,21 @@ export const IconDumbbell = (p: P) => (
   </svg>
 )
 
+export const IconApple = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M12 6c1.2-2.2 3-3.2 5-3" />
+    <path d="M12 6c-1.1-1.5-2.6-2.2-4.5-2" />
+    <path d="M12 7c-5-3.2-9.5.6-8.5 5.6C4.5 17.7 8 21 12 21s7.5-3.3 8.5-8.4C21.5 7.6 17 3.8 12 7Z" />
+  </svg>
+)
+
+export const IconBookOpen = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M2.5 4.5A8.5 8.5 0 0 1 12 6v15a8.5 8.5 0 0 0-9.5-1.5Z" />
+    <path d="M21.5 4.5A8.5 8.5 0 0 0 12 6v15a8.5 8.5 0 0 1 9.5-1.5Z" />
+  </svg>
+)
+
 export const IconUser = (p: P) => (
   <svg {...base(p)}>
     <circle cx="12" cy="8" r="4" />
