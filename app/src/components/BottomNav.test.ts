@@ -16,9 +16,9 @@ function render(path: string): string {
 }
 
 describe('BottomNav', () => {
-  it('keeps the five student destinations in the requested order', () => {
+  it('keeps only the four student destinations in the requested order', () => {
     const html = render('/')
-    const labels = ['Início', 'Dieta', 'Treino', 'Biblioteca', 'Perfil']
+    const labels = ['Início', 'Dieta', 'Treino', 'Perfil']
 
     let previousIndex = -1
     for (const label of labels) {
@@ -30,8 +30,9 @@ describe('BottomNav', () => {
     expect(html).toContain('href="/"')
     expect(html).toContain('href="/dieta"')
     expect(html).toContain('href="/treino"')
-    expect(html).toContain('href="/treinos"')
     expect(html).toContain('href="/perfil"')
+    expect(html).not.toContain('href="/treinos"')
+    expect(html).not.toContain('Biblioteca')
     expect(html).not.toContain('Meu Plano')
   })
 
@@ -39,6 +40,6 @@ describe('BottomNav', () => {
     const html = render('/treino')
 
     expect(html).toMatch(/aria-current="page"[^>]*href="\/treino"/)
-    expect(html).not.toMatch(/aria-current="page"[^>]*href="\/treinos"/)
+    expect(html).not.toContain('href="/treinos"')
   })
 })

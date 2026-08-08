@@ -7,14 +7,9 @@ import { StudentLayout } from './components/StudentLayout'
 import { FullScreenLoader } from './components/Spinner'
 import { Login } from './pages/Login'
 import { Home } from './pages/Home'
-import { Treinos } from './pages/Treinos'
 import { Perfil } from './pages/Perfil'
 import { Admin } from './pages/Admin'
 
-// PDF viewer pulls in pdfjs (~900KB) — load it only when a ficha is opened.
-const TreinoViewer = lazy(() =>
-  import('./pages/TreinoViewer').then((m) => ({ default: m.TreinoViewer })),
-)
 const Anamnese = lazy(() =>
   import('./pages/Anamnese').then((m) => ({ default: m.Anamnese })),
 )
@@ -56,7 +51,7 @@ export default function App() {
                   </Suspense>
                 }
               />
-              <Route path="/treinos" element={<Treinos />} />
+              <Route path="/treinos" element={<Navigate to="/treino" replace />} />
               <Route
                 path="/anamnese"
                 element={
@@ -68,17 +63,7 @@ export default function App() {
               <Route path="/perfil" element={<Perfil />} />
             </Route>
 
-            {/* PDF viewer — fullscreen, no bottom nav */}
-            <Route
-              path="/treino/:id"
-              element={
-                <RequireStudent>
-                  <Suspense fallback={<FullScreenLoader label="Abrindo ficha…" />}>
-                    <TreinoViewer />
-                  </Suspense>
-                </RequireStudent>
-              }
-            />
+            <Route path="/treino/:id" element={<Navigate to="/treino" replace />} />
 
             {/* Admin */}
             <Route

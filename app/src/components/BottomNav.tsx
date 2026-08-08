@@ -1,7 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
   IconApple,
-  IconBookOpen,
   IconDumbbell,
   IconHome,
   IconUser,
@@ -11,7 +10,6 @@ const items = [
   { to: '/', label: 'Início', Icon: IconHome, end: true },
   { to: '/dieta', label: 'Dieta', Icon: IconApple, end: true },
   { to: '/treino', label: 'Treino', Icon: IconDumbbell, end: true },
-  { to: '/treinos', label: 'Biblioteca', Icon: IconBookOpen, end: true },
   { to: '/perfil', label: 'Perfil', Icon: IconUser, end: true },
 ]
 

@@ -7,8 +7,8 @@ function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), 'utf8')
 }
 
-describe('personalized plan legacy preservation sentinels', () => {
-  it('keeps all 34 community fichas and their legacy routes as Biblioteca', () => {
+describe('personalized plan legacy containment sentinels', () => {
+  it('keeps legacy assets stored but removes Biblioteca from student navigation', () => {
     const planFiles = readdirSync(resolve(process.cwd(), '..', 'scripts', 'plans')).filter(
       (name) => name.endsWith('.json'),
     )
@@ -21,16 +21,16 @@ describe('personalized plan legacy preservation sentinels', () => {
     expect(app).toContain('path="/meu-plano"')
     expect(app).toContain('path="/dieta"')
     expect(app).toContain('path="/treino"')
-    expect(app).toContain('path="/treinos"')
-    expect(app).toContain('path="/treino/:id"')
+    expect(app).toContain('path="/treinos" element={<Navigate to="/treino" replace />}')
+    expect(app).toContain('path="/treino/:id" element={<Navigate to="/treino" replace />}')
     expect(nav).toContain("to: '/dieta'")
     expect(nav).toContain("to: '/treino'")
-    expect(nav).toContain("to: '/treinos'")
     expect(nav).toContain("label: 'Início'")
     expect(nav).toContain("label: 'Dieta'")
     expect(nav).toContain("label: 'Treino'")
-    expect(nav).toContain("label: 'Biblioteca'")
     expect(nav).toContain("label: 'Perfil'")
+    expect(nav).not.toContain("to: '/treinos'")
+    expect(nav).not.toContain("label: 'Biblioteca'")
     expect(library).toContain('Biblioteca')
     expect(library).toContain('data.workouts.length')
     expect(library).toContain('TEAM_LABELS')
