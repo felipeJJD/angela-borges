@@ -1,8 +1,9 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './components/Toast'
 import { RequireStudent, RequireAdmin } from './components/Guards'
+import { RequireSubmittedAnamnesis } from './components/RequireSubmittedAnamnesis'
 import { StudentLayout } from './components/StudentLayout'
 import { FullScreenLoader } from './components/Spinner'
 import { Login } from './pages/Login'
@@ -25,42 +26,48 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
 
-            {/* Student area (bottom nav) */}
+            {/* Student access: onboarding first, app shell only after submission. */}
             <Route
               element={
                 <RequireStudent>
-                  <StudentLayout />
+                  <Outlet />
                 </RequireStudent>
               }
             >
-              <Route path="/" element={<Home />} />
-              <Route path="/meu-plano" element={<Navigate to="/dieta" replace />} />
-              <Route
-                path="/dieta"
-                element={
-                  <Suspense fallback={<FullScreenLoader label="Abrindo sua dieta…" />}>
-                    <MeuPlano section="diet" />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/treino"
-                element={
-                  <Suspense fallback={<FullScreenLoader label="Abrindo seu treino…" />}>
-                    <MeuPlano section="training" />
-                  </Suspense>
-                }
-              />
-              <Route path="/treinos" element={<Navigate to="/treino" replace />} />
               <Route
                 path="/anamnese"
                 element={
-                  <Suspense fallback={<FullScreenLoader label="Abrindo anamnese…" />}>
-                    <Anamnese />
-                  </Suspense>
+                  <div className="mx-auto min-h-[100dvh] max-w-md bg-ink">
+                    <Suspense fallback={<FullScreenLoader label="Abrindo sua anamnese…" />}>
+                      <Anamnese />
+                    </Suspense>
+                  </div>
                 }
               />
-              <Route path="/perfil" element={<Perfil />} />
+              <Route element={<RequireSubmittedAnamnesis />}>
+                <Route element={<StudentLayout />}>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/meu-plano" element={<Navigate to="/dieta" replace />} />
+                  <Route
+                    path="/dieta"
+                    element={
+                      <Suspense fallback={<FullScreenLoader label="Abrindo sua dieta…" />}>
+                        <MeuPlano section="diet" />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="/treino"
+                    element={
+                      <Suspense fallback={<FullScreenLoader label="Abrindo seu treino…" />}>
+                        <MeuPlano section="training" />
+                      </Suspense>
+                    }
+                  />
+                  <Route path="/treinos" element={<Navigate to="/treino" replace />} />
+                  <Route path="/perfil" element={<Perfil />} />
+                </Route>
+              </Route>
             </Route>
 
             <Route path="/treino/:id" element={<Navigate to="/treino" replace />} />

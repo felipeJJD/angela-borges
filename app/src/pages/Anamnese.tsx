@@ -285,7 +285,12 @@ function ReviewCard({ draft }: { draft: AnamnesisDraft }) {
 function AnamneseJourney({
   userId,
   repository,
-}: Readonly<{ userId: string; repository: AnamnesisDraftRepository | null }>) {
+  onExit,
+}: Readonly<{
+  userId: string
+  repository: AnamnesisDraftRepository | null
+  onExit: () => Promise<void>
+}>) {
   const navigate = useNavigate()
   const [state, dispatch] = useReducer(
     AngelaAnamnesisJourney.reducer,
@@ -363,8 +368,8 @@ function AnamneseJourney({
   }, [repository])
 
   const scheduleSave = useCallback(
-    (draft: AnamnesisDraft, immediate = false) => {
-      if (!saver) return
+    (draft: AnamnesisDraft, immediate = false): Promise<void> => {
+      if (!saver) return Promise.resolve()
       if (saveTimer.current) {
         clearTimeout(saveTimer.current)
         saveTimer.current = null
@@ -372,24 +377,23 @@ function AnamneseJourney({
 
       const generation = ++saveGeneration.current
       setSaveState('saving')
-      const persist = () => {
+      const persist = async () => {
         saveTimer.current = null
-        void saver
-          .queue(draft)
-          .then((saved) => {
-            if (!mounted.current) return
-            dispatch({ type: 'save_succeeded', draft: saved })
-            if (generation === saveGeneration.current) setSaveState('saved')
-          })
-          .catch(() => {
-            if (mounted.current && generation === saveGeneration.current) {
-              setSaveState('error')
-            }
-          })
+        try {
+          const saved = await saver.queue(draft)
+          if (!mounted.current) return
+          dispatch({ type: 'save_succeeded', draft: saved })
+          if (generation === saveGeneration.current) setSaveState('saved')
+        } catch {
+          if (mounted.current && generation === saveGeneration.current) {
+            setSaveState('error')
+          }
+        }
       }
 
-      if (immediate) persist()
-      else saveTimer.current = setTimeout(persist, 300)
+      if (immediate) return persist()
+      saveTimer.current = setTimeout(() => void persist(), 300)
+      return Promise.resolve()
     },
     [saver],
   )
@@ -439,12 +443,13 @@ function AnamneseJourney({
   const progress = AngelaAnamnesisJourney.getProgress(state.draft.answers)
   const currentStep = AngelaAnamnesisJourney.catalog.steps[state.stepIndex]
   const move = (type: 'next' | 'back') => {
-    scheduleSave(state.draft, true)
+    void scheduleSave(state.draft, true)
     dispatch({ type })
   }
   const leave = () => {
-    scheduleSave(state.draft, true)
-    navigate('/')
+    void scheduleSave(state.draft, true).finally(() => {
+      void onExit().catch(() => undefined)
+    })
   }
   const changeAnswer = (
     key: AnamnesisStepKey,
@@ -458,7 +463,7 @@ function AnamneseJourney({
     }
     const next = AngelaAnamnesisJourney.reducer(state, action)
     dispatch(action)
-    scheduleSave(next.draft)
+    void scheduleSave(next.draft)
   }
 
   const refreshDelivery = async () => {
@@ -497,7 +502,7 @@ function AnamneseJourney({
 
   if (state.phase === 'submitting') {
     return (
-      <div className="flex min-h-[calc(100dvh-5.5rem)] flex-col items-center justify-center px-6 text-center">
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center px-6 text-center">
         <span className="h-10 w-10 animate-spin-slow rounded-full border-4 border-coral/25 border-t-coral" />
         <h1 className="mt-5 text-display text-2xl text-white">Enviando sua anamnese</h1>
         <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted">
@@ -512,7 +517,7 @@ function AnamneseJourney({
     const failed = deliveryState?.status === 'failed'
     const checking = deliveryState === null || deliveryState.status === 'checking'
     return (
-      <div className="flex min-h-[calc(100dvh-5.5rem)] flex-col items-center justify-center px-6 text-center">
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center px-6 text-center">
         <span
           className={`flex h-16 w-16 items-center justify-center rounded-full ${
             delivered
@@ -561,7 +566,7 @@ function AnamneseJourney({
 
   if (state.phase === 'error') {
     return (
-      <div className="min-h-[calc(100dvh-5.5rem)] px-5 pb-8 pt-8 safe-top">
+      <div className="min-h-[100dvh] px-5 pb-8 pt-8 safe-top">
         <button
           type="button"
           onClick={() => dispatch({ type: 'retry' })}
@@ -596,7 +601,7 @@ function AnamneseJourney({
 
   if (state.phase === 'review') {
     return (
-      <div className="min-h-[calc(100dvh-5.5rem)] px-5 pb-8 safe-top">
+      <div className="min-h-[100dvh] px-5 pb-8 safe-top">
         <header className="mb-5 flex items-center gap-3">
           <button
             type="button"
@@ -637,11 +642,11 @@ function AnamneseJourney({
   const currentIssue = state.issues.find((entry) => entry.key === currentStep.key)
 
   return (
-    <div className="min-h-[calc(100dvh-5.5rem)] px-5 pb-8 safe-top">
+    <div className="min-h-[100dvh] px-5 pb-8 safe-top">
       <header className="flex items-center justify-between gap-3">
         <button
           type="button"
-          aria-label={state.stepIndex === 0 ? 'Sair da anamnese' : 'Voltar uma etapa'}
+          aria-label={state.stepIndex === 0 ? 'Sair da conta' : 'Voltar uma etapa'}
           onClick={() => (state.stepIndex === 0 ? leave() : move('back'))}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-surface text-white"
         >
@@ -722,7 +727,7 @@ function AnamneseJourney({
 }
 
 export function Anamnese({ repository: repositoryOverride }: AnamneseProps) {
-  const { session } = useAuth()
+  const { session, signOut } = useAuth()
   const userId = session?.user.id ?? null
   const repository = useMemo(() => {
     if (repositoryOverride !== undefined) return repositoryOverride
@@ -735,6 +740,7 @@ export function Anamnese({ repository: repositoryOverride }: AnamneseProps) {
       key={userId}
       userId={userId}
       repository={repository}
+      onExit={signOut}
     />
   )
 }
