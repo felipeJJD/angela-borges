@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Button } from '../components/Button'
+import { angelaYouTubeEmbedUrl } from '../features/personalized-plan/AngelaExerciseVideo'
 import type {
   AngelaPersonalizedPlanState,
   AngelaPublishedPlan,
@@ -335,6 +336,56 @@ function DietSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
   )
 }
 
+function ExerciseVideo({
+  exerciseName,
+  videoUrl,
+}: Readonly<{ exerciseName: string; videoUrl: string }>) {
+  const embedUrl = angelaYouTubeEmbedUrl(videoUrl)
+  if (embedUrl === null) {
+    return (
+      <a
+        href={videoUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerPolicy="no-referrer"
+        aria-label={`Assistir vídeo de ${exerciseName}`}
+        className="mt-3 inline-flex min-h-10 items-center rounded-xl border border-coral/40 bg-coral/10 px-3 text-xs font-semibold text-coral-bright"
+      >
+        Assistir vídeo
+      </a>
+    )
+  }
+
+  return (
+    <figure className="mt-3 overflow-hidden rounded-2xl border border-coral/30 bg-black">
+      <figcaption className="bg-surface-2/95 px-3 py-2 text-xs font-semibold text-white">
+        Vídeo do exercício
+      </figcaption>
+      <div className="aspect-video w-full bg-black">
+        <iframe
+          src={embedUrl}
+          title={`${exerciseName} — demonstração em vídeo`}
+          className="h-full w-full border-0"
+          loading="lazy"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+        />
+      </div>
+      <a
+        href={videoUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerPolicy="no-referrer"
+        aria-label={`Abrir vídeo de ${exerciseName} no YouTube`}
+        className="flex min-h-10 items-center justify-center bg-surface-2/95 px-3 text-xs font-semibold text-coral-bright"
+      >
+        Abrir no YouTube
+      </a>
+    </figure>
+  )
+}
+
 function TrainingSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
   return (
     <section className="space-y-3" aria-labelledby="training-title">
@@ -384,13 +435,17 @@ function TrainingSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
             {day.exercises.map((exercise, exerciseIndex) => {
               const substitutions = stringList(exercise.substitutions)
               const videoUrl = safeAngelaExerciseVideoUrl(exercise.video_url)
+              const exerciseName = text(
+                exercise.name,
+                `Exercício ${exerciseIndex + 1}`,
+              )
               return (
                 <li
                   key={`${text(exercise.name, 'Exercício')}-${exerciseIndex}`}
                   className="py-3"
                 >
                   <p className="text-sm font-medium text-white">
-                    {text(exercise.name, `Exercício ${exerciseIndex + 1}`)}
+                    {exerciseName}
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     {typeof exercise.sets === 'number'
@@ -417,15 +472,10 @@ function TrainingSection({ plan }: Readonly<{ plan: AngelaPublishedPlan }>) {
                     </p>
                   )}
                   {videoUrl !== null && (
-                    <a
-                      href={videoUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      referrerPolicy="no-referrer"
-                      className="mt-3 inline-flex min-h-10 items-center rounded-xl border border-coral/40 bg-coral/10 px-3 text-xs font-semibold text-coral-bright"
-                    >
-                      Assistir vídeo
-                    </a>
+                    <ExerciseVideo
+                      exerciseName={exerciseName}
+                      videoUrl={videoUrl}
+                    />
                   )}
                 </li>
               )

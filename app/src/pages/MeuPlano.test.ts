@@ -26,6 +26,43 @@ function render(
   )
 }
 
+function publishedStateWithVideo(videoUrl: string): AngelaPersonalizedPlanState {
+  return {
+    kind: 'published',
+    plan: {
+      planVersionId: '33333333-3333-4333-8333-333333333333',
+      userId: '22222222-2222-4222-8222-222222222222',
+      protocolId: '11111111-1111-4111-8111-111111111111',
+      protocolVersion: 3,
+      schemaVersion: 'angela-plan.v1',
+      snapshotHash:
+        'fa3af851c7b7929761867755f5850b89ec17e601f356b17caac1e0b7edbb2008',
+      state: 'active',
+      diet: { meals: [{ name: 'Almoço', foods: [{ name: 'Arroz' }] }] },
+      training: {
+        days: [
+          {
+            name: 'Treino A',
+            exercises: [{ name: 'Aeróbio', video_url: videoUrl }],
+          },
+        ],
+      },
+      generationMetadata: {
+        catalogVersion: 'catalog-v1',
+        engineVersion: 'engine-v1',
+        promptVersion: 'prompt-v1',
+        ragVersion: 'rag-v1',
+        schemaVersion: 'schema-v1',
+      },
+      counts: { dietMeals: 1, trainingDays: 1, trainingExercises: 1 },
+      stagedAt: '2026-08-03T18:00:00.000Z',
+      activatedAt: '2026-08-03T18:05:00.000Z',
+      createdAt: '2026-08-03T18:00:00.000Z',
+      updatedAt: '2026-08-03T18:05:00.000Z',
+    },
+  }
+}
+
 describe('Meu Plano observable states', () => {
   it('sends a student without submitted anamnesis to the real anamnesis flow', () => {
     const html = render({ kind: 'empty' })
@@ -165,7 +202,18 @@ describe('Meu Plano observable states', () => {
     expect(html).toContain('Descanso: 75 segundos')
     expect(html).toContain('Mantenha os joelhos alinhados.')
     expect(html).toContain('Substituições: Leg press, Agachamento goblet')
-    expect(html).toContain('Assistir vídeo')
+    expect(html).toContain('Vídeo do exercício')
+    expect(html).toContain('<iframe')
+    expect(html).toContain(
+      'src="https://www.youtube-nocookie.com/embed/tuwHzzPdaGc?playsinline=1&amp;rel=0"',
+    )
+    expect(html).toContain('title="Agachamento — demonstração em vídeo"')
+    expect(html).toContain('loading="lazy"')
+    expect(html).toContain('referrerPolicy="strict-origin-when-cross-origin"')
+    expect(html).toContain('Abrir no YouTube')
+    expect(html).toContain(
+      'aria-label="Abrir vídeo de Agachamento no YouTube"',
+    )
     expect(html).toContain(
       'href="https://www.youtube.com/watch?v=tuwHzzPdaGc"',
     )
@@ -223,5 +271,19 @@ describe('Meu Plano observable states', () => {
     expect(training).toContain('Agachamento')
     expect(training).not.toContain('Café da manhã')
     expect(training).not.toContain('Ovos')
+  })
+
+  it('keeps an approved non-YouTube video as an external link without an iframe', () => {
+    const videoUrl =
+      'https://pocagorduraandmuitaporrada.curseduca.pro/m/lessons/treino-em-casa-1776634897621?moduleId=421'
+    const html = render(publishedStateWithVideo(videoUrl), true, 'training')
+
+    expect(html).toContain('Assistir vídeo')
+    expect(html).toContain(`href="${videoUrl.replace('&', '&amp;')}"`)
+    expect(html).toContain('rel="noopener noreferrer"')
+    expect(html).toContain('referrerPolicy="no-referrer"')
+    expect(html).toContain('aria-label="Assistir vídeo de Aeróbio"')
+    expect(html).not.toContain('<iframe')
+    expect(html).not.toContain('youtube-nocookie.com')
   })
 })
