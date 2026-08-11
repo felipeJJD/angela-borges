@@ -50,7 +50,13 @@ export function Button({
       {loading && (
         <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin-slow" />
       )}
-      <span className={loading ? 'opacity-90' : ''}>{children}</span>
+      <span
+        className={`inline-flex items-center justify-center gap-2 ${
+          loading ? 'opacity-90' : ''
+        }`}
+      >
+        {children}
+      </span>
     </button>
   )
 }
