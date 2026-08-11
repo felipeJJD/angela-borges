@@ -112,6 +112,7 @@ describe('angela-anamnesis-submit Edge runtime', () => {
     expect(source).toContain('p_expected_answers')
     expect(source).toContain('p_payload_hash')
     expect(source).toContain('replayFromLostResponse')
+    expect(source).toContain('submitError.code === "PT409"')
     expect(source).toContain('get_anamnesis_delivery_status')
     expect(source).toContain('claim_due_dashboard_outbox')
     expect(source).toContain('action === "drain"')

@@ -140,7 +140,7 @@ function mapDelivery(value: unknown): AnamnesisDeliveryStatus {
 }
 
 function mutationError(error: { code?: string; details?: string }, expectedRevision: number): Error {
-  if (error.code === '40001') {
+  if (error.code === 'PT409' || error.code === '40001') {
     const actual = /actual_revision=(\d+)/.exec(error.details ?? '')?.[1]
     return new AnamnesisDraftRevisionConflictError(
       expectedRevision,

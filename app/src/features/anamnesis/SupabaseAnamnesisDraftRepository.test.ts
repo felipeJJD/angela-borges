@@ -171,7 +171,7 @@ describe('SupabaseAnamnesisDraftRepository', () => {
       rpc: vi.fn(async () => ({
         data: null,
         error: {
-          code: '40001',
+          code: 'PT409',
           message: 'ANAMNESIS_REVISION_CONFLICT',
           details: 'actual_revision=4',
         },

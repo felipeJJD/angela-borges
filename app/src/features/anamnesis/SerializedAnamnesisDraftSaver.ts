@@ -98,7 +98,6 @@ export class SerializedAnamnesisDraftSaver {
         current.waiters.forEach(({ resolve }) => resolve(cloneDraft(saved)))
       } catch (error) {
         current.waiters.forEach(({ reject }) => reject(error))
-        this.rejectPending(error)
       }
     }
 
@@ -109,9 +108,4 @@ export class SerializedAnamnesisDraftSaver {
     waiters.forEach((resolve) => resolve(result))
   }
 
-  private rejectPending(error: unknown): void {
-    const pending = this.pending
-    this.pending = null
-    pending?.waiters.forEach(({ reject }) => reject(error))
-  }
 }

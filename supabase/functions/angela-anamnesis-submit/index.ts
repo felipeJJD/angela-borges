@@ -689,7 +689,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     },
   );
   if (submitError) {
-    const status = submitError.code === "40001"
+    const status = submitError.code === "PT409" || submitError.code === "40001"
       ? 409
       : submitError.code === "42501"
       ? 403

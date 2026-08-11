@@ -72,4 +72,52 @@ describe('SerializedAnamnesisDraftSaver', () => {
     await expect(saver.flush()).resolves.toMatchObject({ revision: 2 })
     expect(maxActive).toBe(1)
   })
+
+  it('preserves the newest queued answers when an earlier save fails', async () => {
+    let rejectFirst: ((error: Error) => void) | undefined
+    let resolveLatest: ((saved: AnamnesisDraft) => void) | undefined
+    const save = vi
+      .fn<AnamnesisDraftRepository['save']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<AnamnesisDraft>((_resolve, reject) => {
+            rejectFirst = reject
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<AnamnesisDraft>((resolve) => {
+            resolveLatest = resolve
+          }),
+      )
+    const repository: AnamnesisDraftRepository = {
+      load: vi.fn(),
+      save,
+      submit: vi.fn(),
+      getDeliveryStatus: vi.fn(),
+    }
+    const saver = new SerializedAnamnesisDraftSaver(repository)
+    const first = draft('1990-06-15', '2026-08-11T21:04:00.000Z')
+    const latest = draft('1991-07-16', '2026-08-11T21:06:00.000Z')
+
+    const failedSave = saver.queue(first)
+    const latestSave = saver.queue(latest)
+    void latestSave.catch(() => undefined)
+
+    rejectFirst?.(new Error('upstream timed out'))
+
+    await expect(failedSave).rejects.toThrow('upstream timed out')
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    expect(save).toHaveBeenNthCalledWith(2, latest, 0)
+
+    resolveLatest?.({ ...latest, revision: 1 })
+    await expect(latestSave).resolves.toMatchObject({
+      revision: 1,
+      answers: { birth_date: '1991-07-16' },
+    })
+    await expect(saver.flush()).resolves.toMatchObject({
+      revision: 1,
+      answers: { birth_date: '1991-07-16' },
+    })
+  })
 })

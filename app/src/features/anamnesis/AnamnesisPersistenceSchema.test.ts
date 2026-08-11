@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -11,6 +11,13 @@ const migrationPath = resolve(
   'supabase',
   'migrations',
   '0005_anamnesis_persistence.sql',
+)
+const conflictRecoveryMigrationPath = resolve(
+  process.cwd(),
+  '..',
+  'supabase',
+  'migrations',
+  '0007_anamnesis_conflict_sqlstate.sql',
 )
 
 const stableKeys = [
@@ -43,7 +50,7 @@ const stableKeys = [
 
 function functionSql(sql: string, name: string): string {
   const match = new RegExp(
-    `create or replace function public\\.${name}\\([\\s\\S]*?(?=create or replace function|create trigger|alter table)`,
+    `create or replace function public\\.${name}\\([\\s\\S]*?(?=create or replace function|create trigger|alter table|$)`,
     'i',
   ).exec(sql)
   if (!match) throw new Error(`Missing SQL function ${name}`)
@@ -165,5 +172,24 @@ describe('0005 anamnesis persistence migration', () => {
     expect(normalized).not.toMatch(
       /\b(access_token|refresh_token|authorization|delivery_jwt_secret)\b/,
     )
+  })
+})
+
+describe('0007 anamnesis conflict recovery migration', () => {
+  it('returns revision conflicts as HTTP 409 without a retry-class SQLSTATE', () => {
+    const exists = existsSync(conflictRecoveryMigrationPath)
+    expect(exists).toBe(true)
+    if (!exists) return
+
+    const sql = readFileSync(conflictRecoveryMigrationPath, 'utf8').toLowerCase()
+    const save = functionSql(sql, 'save_anamnesis_draft')
+    const submit = functionSql(sql, 'submit_anamnesis_draft')
+
+    expect(save).toContain("errcode = 'pt409'")
+    expect(submit).toContain("errcode = 'pt409'")
+    expect(save).not.toContain("errcode = '40001'")
+    expect(submit).not.toContain("errcode = '40001'")
+    expect(sql).toContain('grant execute on function public.save_anamnesis_draft')
+    expect(sql).toContain('grant execute on function public.submit_anamnesis_draft')
   })
 })
