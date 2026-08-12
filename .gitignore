@@ -4,6 +4,8 @@ dist/
 __pycache__/
 *.py[cod]
 .playwright-mcp/
+.worktrees/
+.superpowers/
 *keys*.json
 *.secret
 supabase/.temp/
