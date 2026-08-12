@@ -69,12 +69,47 @@ describe('Anamnese production repository wiring', () => {
       ),
       'utf8',
     )
-    const browserSource = `${appSource}\n${repositorySource}`
+    const progressSource = readFileSync(
+      resolve(
+        process.cwd(),
+        'src',
+        'components',
+        'anamnesis',
+        'AnamnesisProgress.tsx',
+      ),
+      'utf8',
+    )
+    const inputSource = readFileSync(
+      resolve(
+        process.cwd(),
+        'src',
+        'components',
+        'anamnesis',
+        'AnamnesisQuestionInput.tsx',
+      ),
+      'utf8',
+    )
+    const browserSource = `${appSource}\n${repositorySource}\n${progressSource}\n${inputSource}`
 
     expect(browserSource).not.toMatch(/localStorage|sessionStorage|indexedDB/i)
     expect(browserSource).not.toMatch(
       /ANGELA_WEBHOOK_HMAC_SECRET|SUPABASE_SERVICE_ROLE_KEY|service[_-]?role/i,
     )
+  })
+
+  it('composes the visual controls without replacing the journey or repository', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src', 'pages', 'Anamnese.tsx'),
+      'utf8',
+    )
+
+    expect(source).toContain('AnamnesisProgress')
+    expect(source).toContain('AnamnesisQuestionInput')
+    expect(source).toContain('interactionHintForStep')
+    expect(source).toContain('AngelaAnamnesisJourney.createState')
+    expect(source).toContain('AngelaAnamnesisJourney.createDraft')
+    expect(source).toContain('SerializedAnamnesisDraftSaver')
+    expect(source).toContain('aria-labelledby="anamnesis-question"')
   })
 
   it('recovers submitted drafts by checking honest pending/delivered/failed delivery state', () => {

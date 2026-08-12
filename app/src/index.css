@@ -85,6 +85,13 @@
       var(--color-ink);
   }
 
+  .anamnesis-canvas {
+    background:
+      radial-gradient(circle at 92% 4%, rgba(232, 120, 78, 0.15), transparent 23rem),
+      radial-gradient(circle at 5% 60%, rgba(255, 138, 92, 0.06), transparent 20rem),
+      var(--color-ink);
+  }
+
   .text-display {
     font-family: var(--font-display);
     text-transform: uppercase;
