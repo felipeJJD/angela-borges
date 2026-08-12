@@ -42,4 +42,15 @@ describe('BottomNav', () => {
     expect(html).toMatch(/aria-current="page"[^>]*href="\/treino"/)
     expect(html).not.toContain('href="/treinos"')
   })
+
+  it('renders a floating glass navigation with one active capsule', () => {
+    const html = render('/treino')
+    const activeLink = html.match(/<a[^>]*aria-current="page"[^>]*>[\s\S]*?<\/a>/)?.[0]
+
+    expect(html).toContain('aria-label="Navegação principal"')
+    expect(html).toContain('data-visual="floating-glass"')
+    expect(activeLink).toContain('href="/treino"')
+    expect(activeLink).toContain('bg-coral/15')
+    expect((html.match(/aria-current="page"/g) ?? [])).toHaveLength(1)
+  })
 })
