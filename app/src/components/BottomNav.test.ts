@@ -53,4 +53,17 @@ describe('BottomNav', () => {
     expect(activeLink).toContain('bg-coral/15')
     expect((html.match(/aria-current="page"/g) ?? [])).toHaveLength(1)
   })
+
+  it('gives every student destination a 44px minimum target size', () => {
+    const html = render('/')
+    const linkClassNames = [...html.matchAll(/<a[^>]*class="([^"]*)"[^>]*>/g)].map(
+      ([, className]) => className,
+    )
+
+    expect(linkClassNames).toHaveLength(4)
+    for (const className of linkClassNames) {
+      expect(className).toContain('min-h-11')
+      expect(className).toContain('min-w-11')
+    }
+  })
 })

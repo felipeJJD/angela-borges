@@ -27,7 +27,7 @@ export function BottomNav() {
             to={to}
             end={end}
             className={({ isActive }) =>
-              `flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-[1.55rem] px-1 text-center transition-[background-color,color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral-bright/80 ${
+              `flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 rounded-[1.55rem] px-1 text-center transition-[background-color,color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral-bright/80 ${
                 isActive
                   ? 'bg-coral/15 text-coral-bright shadow-[inset_0_0_0_1px_rgba(255,138,92,0.18)]'
                   : 'text-muted hover:bg-white/5 hover:text-white'
