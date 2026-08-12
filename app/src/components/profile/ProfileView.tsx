@@ -11,7 +11,6 @@ type Props = Readonly<{
   checkins: number
   completed: number
   signingOut: boolean
-  signOutError: string | null
   onSignOut: () => void
 }>
 
@@ -81,11 +80,6 @@ export function ProfileView(props: Props) {
           </span>
         </button>
       </ProfileGroup>
-      {props.signOutError && (
-        <p className="text-sm text-red-300" role="alert">
-          {props.signOutError}
-        </p>
-      )}
     </div>
   )
 }

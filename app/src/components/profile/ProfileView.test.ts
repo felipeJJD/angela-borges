@@ -14,7 +14,6 @@ const baseProps = {
   checkins: 7,
   completed: 3,
   signingOut: false,
-  signOutError: null,
   onSignOut: () => undefined,
 }
 
@@ -41,22 +40,17 @@ describe('ProfileView', () => {
     expect(html).toContain('Saindo…')
   })
 
-  it('announces a recoverable logout failure', () => {
-    const html = renderToStaticMarkup(
-      createElement(ProfileView, {
-        ...baseProps,
-        signOutError: 'Não foi possível sair. Tente novamente.',
-      }),
-    )
+  it('does not render a post-redirect logout error surface', () => {
+    const html = renderToStaticMarkup(createElement(ProfileView, baseProps))
 
-    expect(html).toContain('role="alert"')
-    expect(html).toContain('Não foi possível sair. Tente novamente.')
+    expect(html).not.toContain('role="alert"')
+    expect(html).not.toContain('Não foi possível sair')
+    expect(html).not.toContain('Tente novamente')
   })
 })
 
 type ProfileElementProps = Readonly<{
   signingOut: boolean
-  signOutError: string | null
   onSignOut: () => void
 }>
 
@@ -156,11 +150,10 @@ describe('Perfil logout state', () => {
     await pendingSignOut
   })
 
-  it('clears the failure and retries logout after a rejection', async () => {
-    const signOut = vi
-      .fn<() => Promise<void>>()
-      .mockRejectedValueOnce(new Error('network down'))
-      .mockResolvedValueOnce(undefined)
+  it('absorbs a late rejection without restoring the profile action', async () => {
+    const signOut = vi.fn<() => Promise<void>>().mockRejectedValue(
+      new Error('gateway rejected after auth redirect'),
+    )
     const state = createUseStateHarness()
     const { Perfil } = await loadPerfil(signOut, state.useState)
 
@@ -170,18 +163,17 @@ describe('Perfil logout state', () => {
     await Promise.resolve()
 
     state.beginRender()
-    const failed = profileProps(Perfil())
-    expect(failed.signingOut).toBe(false)
-    expect(failed.signOutError).toBe(
-      'Não foi possível sair. Tente novamente.',
-    )
-
-    failed.onSignOut()
-    state.beginRender()
-    const retrying = profileProps(Perfil())
-    expect(retrying.signingOut).toBe(true)
-    expect(retrying.signOutError).toBeNull()
-    expect(signOut).toHaveBeenCalledTimes(2)
-    await Promise.resolve()
+    const redirected = profileProps(Perfil())
+    expect(redirected.signingOut).toBe(true)
+    expect(Object.keys(redirected).sort()).toEqual([
+      'checkins',
+      'completed',
+      'email',
+      'fullName',
+      'onSignOut',
+      'signingOut',
+      'team',
+    ])
+    expect(signOut).toHaveBeenCalledTimes(1)
   })
 })

@@ -11,21 +11,14 @@ export function Perfil() {
   const team = profile?.current_team ?? 1
   const email = session?.user.email ?? '—'
   const [signingOut, setSigningOut] = useState(false)
-  const [signOutError, setSignOutError] = useState<string | null>(null)
 
   const completed = data?.completedIds.size ?? 0
   const checkins = data?.totalCheckins ?? 0
 
-  async function handleSignOut() {
+  function handleSignOut() {
     if (signingOut) return
     setSigningOut(true)
-    setSignOutError(null)
-    try {
-      await signOut()
-    } catch {
-      setSigningOut(false)
-      setSignOutError('Não foi possível sair. Tente novamente.')
-    }
+    void signOut().catch(() => undefined)
   }
 
   return (
@@ -36,8 +29,7 @@ export function Perfil() {
       checkins={checkins}
       completed={completed}
       signingOut={signingOut}
-      signOutError={signOutError}
-      onSignOut={() => void handleSignOut()}
+      onSignOut={handleSignOut}
     />
   )
 }
