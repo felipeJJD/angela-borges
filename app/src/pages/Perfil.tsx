@@ -8,7 +8,6 @@ export function Perfil() {
   const { session, profile, signOut } = useAuth()
   const userId = session?.user.id
   const { data } = useStudentData(userId)
-  const team = profile?.current_team ?? 1
   const email = session?.user.email ?? '—'
   const [signingOut, setSigningOut] = useState(false)
 
@@ -25,7 +24,6 @@ export function Perfil() {
     <ProfileView
       fullName={profile?.full_name ?? '—'}
       email={email}
-      team={team}
       checkins={checkins}
       completed={completed}
       signingOut={signingOut}

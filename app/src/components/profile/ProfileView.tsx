@@ -1,13 +1,10 @@
 import type { ReactNode } from 'react'
 
-import { TEAM_LABELS } from '../../lib/supabase'
 import { IconCheck, IconFlame, IconLogout } from '../icons'
-import { TeamBadge } from '../TeamBadge'
 
 type Props = Readonly<{
   fullName: string
   email: string
-  team: 1 | 2 | 3
   checkins: number
   completed: number
   signingOut: boolean
@@ -29,9 +26,6 @@ export function ProfileView(props: Props) {
           {props.fullName}
         </h1>
         <p className="mt-1 text-sm text-muted">{props.email}</p>
-        <div className="mt-3">
-          <TeamBadge team={props.team} />
-        </div>
       </header>
 
       <section aria-labelledby="profile-progress">
@@ -56,10 +50,6 @@ export function ProfileView(props: Props) {
       </section>
 
       <ProfileGroup title="Informações da conta">
-        <ProfileRow
-          label="Nível atual"
-          value={`Team ${props.team} · ${TEAM_LABELS[props.team]}`}
-        />
         <ProfileRow label="Nome" value={props.fullName} />
         <ProfileRow label="E-mail" value={props.email} last />
       </ProfileGroup>

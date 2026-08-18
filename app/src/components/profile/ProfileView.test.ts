@@ -3,14 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProfileView } from './ProfileView'
 
-vi.mock('../../lib/supabase', () => ({
-  TEAM_LABELS: { 1: 'Iniciante', 2: 'Intermediário', 3: 'Avançado' },
-}))
-
 const baseProps = {
   fullName: 'Aluna Teste',
   email: 'aluna@example.test',
-  team: 1,
   checkins: 7,
   completed: 3,
   signingOut: false,
@@ -28,6 +23,13 @@ describe('ProfileView', () => {
     expect(html).toContain('Conta')
     expect(html).toContain('Sair da conta')
     expect(html).not.toMatch(/Alterar senha|Notificações|Excluir conta|Suporte/)
+  })
+
+  it('does not expose the internal Team level on the account screen', () => {
+    const html = renderToStaticMarkup(createElement(ProfileView, baseProps))
+
+    expect(html).not.toContain('Team 1')
+    expect(html).not.toContain('Nível atual')
   })
 
   it('disables and relabels logout while the request is active', () => {
@@ -172,7 +174,6 @@ describe('Perfil logout state', () => {
       'fullName',
       'onSignOut',
       'signingOut',
-      'team',
     ])
     expect(signOut).toHaveBeenCalledTimes(1)
   })
