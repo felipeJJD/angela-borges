@@ -1,4 +1,6 @@
 drive-material/
+# Planos de treino extraídos (conteúdo pago da cliente) ficam só na máquina local.
+scripts/plans/
 node_modules/
 dist/
 __pycache__/
